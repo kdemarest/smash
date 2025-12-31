@@ -13,13 +13,14 @@ import androidx.core.app.NotificationCompat
 
 /**
  * Foreground service that keeps smash running.
- * Handles SMS processing coordination.
+ * Handles SMS and MMS processing coordination.
  */
 class SmashService : Service() {
 
-    private lateinit var smsProcessor: SmsProcessor
+    private lateinit var messageProcessor: MessageProcessor
     private lateinit var commandProcessor: CommandProcessor
     private lateinit var messageForwarder: MessageForwarder
+    private lateinit var mmsObserver: MmsObserver
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -68,11 +69,17 @@ class SmashService : Service() {
         // Initialize message forwarder
         messageForwarder = MessageForwarder(this)
         
-        // Initialize SMS processor
-        smsProcessor = SmsProcessor { sms ->
-            handleIncomingSms(sms)
+        // Initialize unified message processor for both SMS and MMS
+        messageProcessor = MessageProcessor { message ->
+            handleIncomingMessage(message)
         }
-        smsProcessor.start()
+        messageProcessor.start()
+        
+        // Initialize MMS observer - enqueues to shared processor
+        mmsObserver = MmsObserver(this) { message ->
+            messageProcessor.enqueue(message)
+        }
+        mmsObserver.register()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,41 +98,53 @@ class SmashService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
-        smsProcessor.stop()
+        messageProcessor.stop()
+        mmsObserver.unregister()
         SmashLogger.info("SmashService onDestroy")
     }
 
     /**
-     * Queue an incoming SMS for processing.
+     * Explicitly trigger an MMS check.
+     * Called by MmsDownloadReceiver as a fallback when ContentObserver doesn't fire.
      */
-    fun processSms(sms: IncomingSms) {
-        smsProcessor.enqueue(sms)
+    fun triggerMmsCheck() {
+        mmsObserver.checkNow()
     }
 
     /**
-     * Handle an incoming SMS message.
-     * Determines if it's a command or a forwardable message.
+     * Enqueue a message for processing.
+     * Called by SmsReceiver and MmsObserver.
      */
-    private fun handleIncomingSms(sms: IncomingSms) {
+    fun enqueueMessage(message: IncomingMessage) {
+        messageProcessor.enqueue(message)
+    }
+
+    /**
+     * Handle an incoming message (SMS or MMS).
+     * Determines if it's a command or a forwardable message.
+     * Runs on MessageProcessor thread.
+     */
+    private fun handleIncomingMessage(message: IncomingMessage) {
         val config = SmashApplication.getConfigManager().load()
         val prefix = config.prefix
-        val body = sms.body.trim()
+        val body = message.body.trim()
 
-        // Check if this is a command
+        // Check if this is a command (commands don't have attachments typically)
         if (CommandParser.isCommand(body, prefix)) {
-            val result = commandProcessor.process(sms.sender, body)
-            SmsUtils.sendReply(this, sms.sender, result.reply)
+            val result = commandProcessor.process(message.sender, body)
+            SmsUtils.sendReply(this, message.sender, result.reply)
         } else {
-            // Log the incoming SMS
-            SmashLogger.sms("from ${sms.sender}: ${sms.body}")
+            // Log the incoming message
+            val attachmentInfo = if (message.hasAttachments) {
+                " (${message.attachments.size} attachments)"
+            } else ""
+            SmashLogger.sms("from ${message.sender}: ${message.body}$attachmentInfo")
             
             // Forward to targets
             val targetCount = config.targets.size
             if (targetCount > 0) {
                 val result = messageForwarder.forward(
-                    sender = sms.sender,
-                    body = sms.body,
-                    timestamp = sms.timestamp,
+                    message = message,
                     config = config
                 )
                 

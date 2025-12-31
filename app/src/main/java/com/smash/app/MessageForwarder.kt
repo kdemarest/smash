@@ -14,25 +14,21 @@ data class ForwardResult(
 }
 
 /**
- * Forwards incoming SMS messages to configured targets.
- * - Phone targets: sends SMS via SmsUtils
- * - Email targets: POSTs to mailEndpointUrl via EmailForwarder
+ * Forwards incoming SMS/MMS messages to configured targets.
+ * - Phone targets: sends SMS via SmsUtils (images not yet supported for phone targets)
+ * - Email targets: POSTs to mailEndpointUrl via EmailForwarder (includes images)
  */
 class MessageForwarder(private val context: Context) {
 
     /**
      * Forward a message to all configured targets.
      *
-     * @param sender The original sender's phone number
-     * @param body The SMS body to forward
-     * @param timestamp The message timestamp
+     * @param message The incoming message (SMS or MMS)
      * @param config The current SmashConfig
      * @return ForwardResult with success/failure counts
      */
     fun forward(
-        sender: String,
-        body: String,
-        timestamp: Long,
+        message: IncomingMessage,
         config: SmashConfig
     ): ForwardResult {
         val targets = config.targets
@@ -46,14 +42,13 @@ class MessageForwarder(private val context: Context) {
 
         for (target in targets) {
             val isEmail = PhoneUtils.isEmail(target)
-            //SmashLogger.info("Processing target: $target (isEmail=$isEmail)")
             
             val success = if (isEmail) {
-                val displayName = ContactsHelper.getDisplayName(context, sender, config)
-                forwardToEmail(displayName, body, timestamp, target, config.mailEndpointUrl)
+                val displayName = ContactsHelper.getDisplayName(context, message.sender, config)
+                forwardToEmail(displayName, message, target, config.mailEndpointUrl)
             } else {
-                val displayName = ContactsHelper.getDisplayNameShort(context, sender, config)
-                forwardToPhone(displayName, body, target)
+                val displayName = ContactsHelper.getDisplayNameShort(context, message.sender, config)
+                forwardToPhone(displayName, message, target)
             }
 
             if (success) {
@@ -68,12 +63,27 @@ class MessageForwarder(private val context: Context) {
     }
 
     /**
-     * Forward to an email target via HTTP POST.
+     * Legacy method for backward compatibility with SMS-only code paths.
      */
-    private fun forwardToEmail(
+    fun forward(
         sender: String,
         body: String,
         timestamp: Long,
+        config: SmashConfig
+    ): ForwardResult {
+        return forward(
+            message = IncomingMessage(sender = sender, body = body, timestamp = timestamp),
+            config = config
+        )
+    }
+
+    /**
+     * Forward to an email target via HTTP POST.
+     * Includes image attachments if present.
+     */
+    private fun forwardToEmail(
+        sender: String,
+        message: IncomingMessage,
         email: String,
         mailEndpointUrl: String?
     ): Boolean {
@@ -82,21 +92,39 @@ class MessageForwarder(private val context: Context) {
             return false
         }
         
-        return EmailForwarder.forward(
-            endpointUrl = mailEndpointUrl,
-            origin = sender,
-            destinationEmail = email,
-            messageBody = body,
-            timestamp = timestamp
-        )
+        // Check if we have image attachments
+        val imageAttachments = message.imageAttachments
+        
+        return if (imageAttachments.isNotEmpty()) {
+            // Forward with images
+            EmailForwarder.forwardWithAttachments(
+                context = context,
+                endpointUrl = mailEndpointUrl,
+                origin = sender,
+                destinationEmail = email,
+                messageBody = message.body,
+                timestamp = message.timestamp,
+                attachments = imageAttachments
+            )
+        } else {
+            // Forward text only
+            EmailForwarder.forward(
+                endpointUrl = mailEndpointUrl,
+                origin = sender,
+                destinationEmail = email,
+                messageBody = message.body,
+                timestamp = message.timestamp
+            )
+        }
     }
 
     /**
      * Forward to a phone target via SMS.
+     * Note: Images are not forwarded to phone targets (would require MMS sending).
      */
     private fun forwardToPhone(
         displayName: String,
-        body: String,
+        message: IncomingMessage,
         phoneNumber: String
     ): Boolean {
         val cleanedNumber = PhoneUtils.cleanPhone(phoneNumber)
@@ -106,7 +134,15 @@ class MessageForwarder(private val context: Context) {
             return false
         }
 
-        val prefixedBody = "$displayName: $body"
+        // Build the message body
+        var prefixedBody = "$displayName: ${message.body}"
+        
+        // If there were images but we can't forward them, note it
+        if (message.hasImages) {
+            val imageCount = message.imageAttachments.size
+            prefixedBody += " [${imageCount} image${if (imageCount > 1) "s" else ""} not forwarded]"
+        }
+        
         return SmsUtils.sendSms(context, cleanedNumber, prefixedBody)
     }
 }

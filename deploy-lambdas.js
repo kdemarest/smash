@@ -12,12 +12,43 @@ const { execSync } = require('child_process');
 const QUICK_MODE = process.argv.includes('-quick') || process.argv.includes('--quick');
 const fs = require('fs');
 
+// Smoke test all Lambda source files before deploying any
+function smokeTestAll() {
+    console.log('Smoke testing all Lambda files...');
+    const errors = [];
+    
+    for (const lambda of LAMBDAS) {
+        process.stdout.write(`  ${lambda.sourceFile}... `);
+        try {
+            execSync(`node --check ${lambda.sourceFile}`, { encoding: 'utf8', stdio: 'pipe' });
+            console.log('OK');
+        } catch (err) {
+            console.log('FAILED');
+            errors.push({ file: lambda.sourceFile, error: err.stderr || err.message });
+        }
+    }
+    
+    if (errors.length > 0) {
+        console.error('\n❌ Syntax errors found - aborting deploy:\n');
+        for (const { file, error } of errors) {
+            console.error(`--- ${file} ---`);
+            console.error(error);
+        }
+        process.exit(1);
+    }
+    
+    console.log('✓ All Lambda files passed syntax check\n');
+}
+
 const LAMBDAS = [
     {
         name: 'smash-email-forwarder',
         sourceFile: 'smash-email-forwarder.mjs',
-        description: 'Email forwarding via SES',
-        policies: ['arn:aws:iam::aws:policy/AmazonSESFullAccess'],
+        description: 'Email forwarding via SES (with S3 image upload)',
+        policies: [
+            'arn:aws:iam::aws:policy/AmazonSESFullAccess',
+            'arn:aws:iam::aws:policy/AmazonS3FullAccess'  // For uploading images
+        ],
         envVars: {
             FROM_EMAIL: process.env.SMASH_FROM_EMAIL || ''
         }
@@ -218,8 +249,11 @@ async function updateLambdaCode(lambda) {
 }
 
 async function main() {
+    // Smoke test all files first
+    smokeTestAll();
+    
     // Check AWS CLI is configured
-    console.log('\n=== Checking AWS CLI ===');
+    console.log('=== Checking AWS CLI ===');
     try {
         run('aws sts get-caller-identity', { silent: true });
         console.log(`AWS CLI configured OK (region: ${REGION})`);

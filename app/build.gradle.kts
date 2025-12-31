@@ -54,6 +54,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // MMS PDU parsing library (AOSP-derived)
+    implementation("com.klinkerapps:android-smsmms:5.2.6")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- MMS download temp files in cache directory -->
+    <cache-path name="mms_download" path="mms_download/" />
+</paths>

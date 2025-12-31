@@ -12,6 +12,8 @@ smash is an Android application that:
 
 This app is just for me - I will never "release" it. Every install will be done by me, by hand, using adb, so various permission grants and so on can generally be scripted.
 
+At the same time, I am using the app to run my business, so all code must be robust and correct. For example, when receiving an MMS notification, just guessing at it and polling the last two minutes would NOT be sufficient. Directly checking the database would be better.
+
 # Runtime Behavior
 
 The app has a variable called "prefix" which defaults to "Cmd".
@@ -220,8 +222,6 @@ does not permit stopping the service from the notification itself.
 - no encryption of smash.json
 - no retries or queueing mechanisms
 - no GUI configuration interface, although minimial notification as above is allowed.
-- no MMS forwarding
-- no attachment forwarding
 
 # Installation
 

@@ -4,14 +4,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import android.telephony.SmsMessage
 
 /**
  * Receives incoming SMS messages.
- * Extracts sender and body, passes to SmashService for processing.
+ * Extracts sender and body, creates IncomingMessage, and enqueues
+ * to the shared MessageProcessor.
  * 
- * As the default SMS app, we only handle SMS_DELIVER_ACTION to avoid
- * processing messages twice (SMS_RECEIVED is also broadcast but we ignore it).
+ * SMS data is embedded directly in the intent, so extraction is
+ * immediate and reliable - no database queries needed.
  */
 class SmsReceiver : BroadcastReceiver() {
 
@@ -38,19 +38,20 @@ class SmsReceiver : BroadcastReceiver() {
             messagesBySender.getOrPut(sender) { StringBuilder() }.append(body)
         }
 
-        // Process each complete message
+        // Create IncomingMessage for each complete message and enqueue
         for ((sender, bodyBuilder) in messagesBySender) {
             val body = bodyBuilder.toString()
             SmashLogger.info("SMS received from $sender: ${body.take(50)}${if (body.length > 50) "..." else ""}")
             
-            val incomingSms = IncomingSms(
+            val message = IncomingMessage(
                 sender = sender,
                 body = body,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                attachments = emptyList()  // SMS has no attachments
             )
             
-            // Queue for processing via the service
-            SmashService.getInstance()?.processSms(incomingSms)
+            // Enqueue to shared processor
+            SmashService.getInstance()?.enqueueMessage(message)
                 ?: SmashLogger.error("SmsReceiver: SmashService not running, cannot process SMS")
         }
     }

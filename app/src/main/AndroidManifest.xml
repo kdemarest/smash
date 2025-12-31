@@ -91,6 +91,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- MMS Download Result Receiver -->
+        <receiver
+            android:name=".MmsDownloadReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.smash.app.MMS_DOWNLOADED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Required for default SMS app: Headless SMS Service -->
         <service
             android:name=".HeadlessSmsSendService"
@@ -121,6 +130,17 @@
                 <data android:scheme="mmsto" />
             </intent-filter>
         </activity>
+
+        <!-- FileProvider for MMS download temp files -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

@@ -86,6 +86,13 @@ object SmashLogger {
      * Write a log entry.
      */
     private fun log(level: Level, message: String) {
+        // Also output to Android logcat for debugging
+        when (level) {
+            Level.INFO, Level.SMS -> android.util.Log.i("SmashLogger", message)
+            Level.WARNING -> android.util.Log.w("SmashLogger", message)
+            Level.ERROR -> android.util.Log.e("SmashLogger", message)
+        }
+        
         lock.withLock {
             val file = logFile ?: return
             try {
