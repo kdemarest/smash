@@ -99,21 +99,19 @@ class CommandProcessor(
      * HELP command - list all commands with parameters.
      */
     private fun handleHelp(): CommandResult {
-        val prefix = configManager.load().prefix
-        val help = """
-			help
-            list [prefix | email | targets | aliases]
-            add <target>
-            remove <target>
-            alias <name> <number> | remove
-            prefix <new>
-            setmail <url> | disable
-            send <name_or_number> <text>
-            log [n]
-            emaillog <address>
-        """.trimIndent()
+        val help = listOf(
+            "help",
+            "list [prefix/email/targets/aliases]",
+            "add <target>",
+            "remove <target>",
+            "alias <name> <number/remove>",
+            "prefix <new>",
+            "setmail <url/disable>",
+            "send <name_or_number> <text>",
+            "log [n/trim]",
+            "emaillog <address>"
+        ).joinToString("\n")
         
-        //SmashLogger.info("HELP command executed")
         return CommandResult.Success(help)
     }
 
@@ -311,10 +309,16 @@ class CommandProcessor(
     }
 
     /**
-     * LOG command - reply with last N lines of log.
+     * LOG command - reply with last N lines of log, or trim.
      */
     private fun handleLog(args: String): CommandResult {
         val countArg = args.trim()
+        
+        // Handle "log trim"
+        if (countArg.equals("trim", ignoreCase = true)) {
+            SmashLogger.trim(200)
+            return CommandResult.Success("log trimmed to 200 entries")
+        }
         
         val count = if (countArg.isEmpty()) {
             20

@@ -5,14 +5,16 @@ import android.app.Activity
 import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.provider.Telephony
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /**
@@ -29,6 +31,7 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_SMS,
             Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CONTACTS,
             Manifest.permission.POST_NOTIFICATIONS
         )
     } else {
@@ -36,7 +39,8 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_SMS,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CONTACTS
         )
     }
 
@@ -58,13 +62,25 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             SmashLogger.info("Set as default SMS app")
-            startServiceAndFinish()
+            checkBatteryOptimization()
         } else {
             SmashLogger.warning("Not set as default SMS app")
             updateStatus("Warning: smash is not the default SMS app. SMS receiving may not work.")
-            // Still start the service, but it may not receive SMS
-            startServiceAndFinish()
+            // Still continue, but it may not receive SMS
+            checkBatteryOptimization()
         }
+    }
+
+    private val batteryOptimizationLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // Check if it was actually disabled
+        if (isIgnoringBatteryOptimizations()) {
+            SmashLogger.info("Battery optimization disabled")
+        } else {
+            SmashLogger.warning("Battery optimization still enabled")
+        }
+        startServiceAndFinish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,7 +112,7 @@ class MainActivity : AppCompatActivity() {
         
         if (PhoneUtils.isDefaultSmsApp(this)) {
             SmashLogger.info("Already default SMS app")
-            startServiceAndFinish()
+            checkBatteryOptimization()
         } else {
             SmashLogger.info("Requesting to be default SMS app")
             promptForDefaultSmsApp()
@@ -124,6 +140,30 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
         intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
         defaultSmsAppLauncher.launch(intent)
+    }
+
+    private fun checkBatteryOptimization() {
+        if (isIgnoringBatteryOptimizations()) {
+            SmashLogger.info("Battery optimization already disabled")
+            startServiceAndFinish()
+        } else {
+            SmashLogger.info("Requesting battery optimization exemption")
+            requestBatteryOptimizationExemption()
+        }
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        val powerManager = getSystemService(PowerManager::class.java)
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    @SuppressWarnings("BatteryLife")
+    private fun requestBatteryOptimizationExemption() {
+        updateStatus("Requesting battery exemption...")
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        batteryOptimizationLauncher.launch(intent)
     }
 
     private fun startServiceAndFinish() {

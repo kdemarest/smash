@@ -166,6 +166,7 @@ The app requires these runtime permissions:
 | `SEND_SMS` | Send SMS (forwards & replies) |
 | `READ_SMS` | Required for default SMS app |
 | `READ_PHONE_STATE` | Access phone number info |
+| `READ_CONTACTS` | Look up contact names for friendly display |
 | `INTERNET` | HTTP POST to email endpoint |
 | `FOREGROUND_SERVICE` | Keep service running |
 | `POST_NOTIFICATIONS` | Show foreground notification (Android 13+) |
@@ -341,20 +342,81 @@ Cmd add +15559876543
 Cmd add alerts@example.com
 ```
 
-### 6.2 Verify Configuration
+### 6.2 Set Up Aliases (Optional)
+Create friendly names for phone numbers. Aliases are case-preserving (stored as you type) but case-insensitive for lookup:
 ```
-Cmd list
+Cmd alias Mom (512) 555-1234
+Cmd alias Dad 512-555-5678
 ```
 
-### 6.3 Test Send
+Now when Mom texts, emails show "SMS from Mom" and forwarded SMS show "Mom: message".
+
+View an alias:
+```
+Cmd alias Mom
+```
+Reply: `Mom=(512) 555-1234`
+
+Remove an alias:
+```
+Cmd alias Mom remove
+```
+
+> **Note:** Alias names cannot contain digits. Phone numbers can include formatting like `(512) 555-1234` - they're cleaned automatically.
+
+### 6.3 Verify Configuration
+```
+Cmd list targets
+Cmd list aliases
+Cmd list prefix
+Cmd list email
+```
+
+Or just `Cmd list` to see usage.
+
+### 6.4 Test Send
 ```
 Cmd send +15551234567 Test message from smash
+Cmd send Mom Hi from smash!
 ```
 
-### 6.4 Check Logs
+### 6.5 Check Logs
 ```
 Cmd log 50
+Cmd log trim
 ```
+
+---
+
+## 7. Friendly Names in Forwarding
+
+When SMS messages are forwarded, smash displays friendly names instead of raw phone numbers:
+
+### Priority Order
+1. **Alias** - Names you define with `Cmd alias`
+2. **Contact** - Names from the phone's contacts (requires READ_CONTACTS permission)
+3. **Phone number** - Falls back to the raw number if no match
+
+### Email Forwarding
+- Subject line: `SMS from Mom` (or `SMS from John Smith` from contacts, or `SMS from +15551234567`)
+- Uses full contact name (first and last)
+
+### SMS Forwarding
+- Message prefix: `Mom: original message here`
+- Uses first name only for contacts to save space
+
+### Example
+If you have:
+- Alias: `Mom` → `(512) 555-1234`
+- Contact: `John Smith` → `555-867-5309`
+
+Incoming SMS from `(512) 555-1234`:
+- Email subject: "SMS from Mom"
+- Forwarded SMS: "Mom: Hello!"
+
+Incoming SMS from `555-867-5309`:
+- Email subject: "SMS from John Smith"
+- Forwarded SMS: "John: Hello!"
 
 ---
 
@@ -457,12 +519,16 @@ Or via **Settings > Apps > smash > Uninstall**
 | Command | Description |
 |---------|-------------|
 | `Cmd help` | List all commands |
-| `Cmd add <target>` | Add phone/email to targets |
+| `Cmd list [what]` | Show config: `prefix`, `email`, `targets`, or `aliases` |
+| `Cmd add <target>` | Add phone/email to forwarding targets |
 | `Cmd remove <target>` | Remove from targets |
-| `Cmd list` | Show config |
-| `Cmd send <number> <text>` | Send SMS |
-| `Cmd setmail <url>` | Set email endpoint |
+| `Cmd alias <name> <number>` | Create alias for a phone number |
+| `Cmd alias <name>` | Show an alias value |
+| `Cmd alias <name> remove` | Remove an alias |
+| `Cmd send <number/alias> <text>` | Send SMS to number or alias |
+| `Cmd setmail <url>` | Set email endpoint URL |
 | `Cmd setmail disable` | Disable email forwarding |
-| `Cmd log [n]` | Show last n log lines |
-| `Cmd emaillog <address>` | Email log to address |
 | `Cmd prefix <new>` | Change command prefix |
+| `Cmd log [n]` | Show last n log lines (default 20) |
+| `Cmd log trim` | Trim log to last 200 entries |
+| `Cmd emaillog <address>` | Email log to address |

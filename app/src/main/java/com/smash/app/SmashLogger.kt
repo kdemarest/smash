@@ -141,6 +141,25 @@ object SmashLogger {
     }
 
     /**
+     * Trim the log file to the last N entries.
+     */
+    fun trim(keepCount: Int) {
+        lock.withLock {
+            val file = logFile ?: return
+            try {
+                if (!file.exists()) return
+                val lines = file.readLines(Charsets.UTF_8)
+                if (lines.size <= keepCount) return
+                val trimmed = lines.takeLast(keepCount)
+                file.writeText(trimmed.joinToString("\n") + "\n", Charsets.UTF_8)
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+        notifyListeners()
+    }
+
+    /**
      * Add a listener for log changes.
      */
     fun addOnLogChangedListener(listener: OnLogChangedListener) {
