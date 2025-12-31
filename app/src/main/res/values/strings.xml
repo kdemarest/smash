@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">smash</string>
+    <string name="status_title">smash Status</string>
+    <string name="notification_channel_name">smash service</string>
+    <string name="notification_title">smash is running</string>
+    <string name="notification_text">Forwarding SMS commands and messages.</string>
+    <string name="notification_text_warning">Forwarding SMS commands and messages. WARNING: Not default SMS app</string>
+    <string name="notification_text_checking">Checking SMS app status...</string>
+</resources>

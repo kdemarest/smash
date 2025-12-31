@@ -1,0 +1,55 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Debug APK",
+            "type": "shell",
+            "command": "./build.cmd",
+            "args": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Install APK",
+            "type": "shell",
+            "command": "./install.cmd",
+            "args": [],
+            "group": "build",
+            "dependsOn": "Build Debug APK",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Build & Install",
+            "dependsOn": ["Build Debug APK", "Install APK"],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "./gradlew",
+            "args": ["clean"],
+            "problemMatcher": []
+        },
+        {
+            "label": "View Logcat",
+            "type": "shell",
+            "command": "adb",
+            "args": ["logcat", "-s", "SmashLogger:*", "smash:*", "*:E"],
+            "isBackground": true,
+            "problemMatcher": []
+        }
+    ]
+}
