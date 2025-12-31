@@ -52,7 +52,6 @@ class SmsProcessor(
      */
     fun enqueue(sms: IncomingSms) {
         queue.offer(sms)
-        SmashLogger.info("SMS queued from ${sms.sender}, queue size: ${queue.size}")
     }
 
     /**
@@ -65,9 +64,9 @@ class SmsProcessor(
                 val sms = queue.poll(1, java.util.concurrent.TimeUnit.SECONDS)
                 if (sms != null) {
                     try {
-                        SmashLogger.info("Processing SMS from ${sms.sender}")
+                        //SmashLogger.info("Processing SMS from ${sms.sender}")
                         onMessage(sms)
-                        SmashLogger.info("Finished processing SMS from ${sms.sender}")
+                        //SmashLogger.info("Finished processing SMS from ${sms.sender}")
                     } catch (e: Exception) {
                         SmashLogger.error("Error processing SMS from ${sms.sender}", e)
                     }

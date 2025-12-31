@@ -69,7 +69,7 @@ There will be few enough log entries that we won't have to limit size or rotate 
 
 - Make standard assumptions for http timeout
 - header content type is application/json
-- The service will be from the email service Postmark
+- The endpoint is typically an AWS Lambda function that calls SES (see lambda.js), but it conforms to the same specs as sendgrid or postmark.
 - Body is 
 {
 	"origin": "<origin_number>",

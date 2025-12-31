@@ -36,6 +36,8 @@ class CommandProcessor(
         private const val CMD_SEND = "send"
         private const val CMD_LOG = "log"
         private const val CMD_EMAILLOG = "emaillog"
+        private const val CMD_HELP = "help"
+        private const val CMD_ALIAS = "alias"
 
         // Reply messages
         const val REPLY_INVALID_COMMAND = "invalid command"
@@ -64,11 +66,9 @@ class CommandProcessor(
         
         return when (parsed) {
             is ParsedCommand.Invalid -> {
-                SmashLogger.info("Invalid command from $sender: empty or malformed")
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
             is ParsedCommand.Valid -> {
-                SmashLogger.info("Command from $sender: ${parsed.name} ${parsed.args.take(50)}")
                 dispatchCommand(parsed.name, parsed.args, sender)
             }
         }
@@ -79,7 +79,7 @@ class CommandProcessor(
      */
     private fun dispatchCommand(command: String, args: String, sender: String): CommandResult {
         return when (command) {
-            CMD_LIST -> handleList()
+            CMD_LIST -> handleList(args)
             CMD_ADD -> handleAdd(args)
             CMD_REMOVE -> handleRemove(args)
             CMD_PREFIX -> handlePrefix(args)
@@ -87,30 +87,75 @@ class CommandProcessor(
             CMD_SEND -> handleSend(args)
             CMD_LOG -> handleLog(args)
             CMD_EMAILLOG -> handleEmailLog(args)
+            CMD_HELP -> handleHelp()
+            CMD_ALIAS -> handleAlias(args)
             else -> {
-                SmashLogger.info("Unknown command: $command")
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
         }
     }
 
     /**
-     * LIST command - reply with mailEndpointUrl and targets list.
+     * HELP command - list all commands with parameters.
      */
-    private fun handleList(): CommandResult {
+    private fun handleHelp(): CommandResult {
+        val prefix = configManager.load().prefix
+        val help = """
+			help
+            list [prefix | email | targets | aliases]
+            add <target>
+            remove <target>
+            alias <name> <number> | remove
+            prefix <new>
+            setmail <url> | disable
+            send <name_or_number> <text>
+            log [n]
+            emaillog <address>
+        """.trimIndent()
+        
+        //SmashLogger.info("HELP command executed")
+        return CommandResult.Success(help)
+    }
+
+    /**
+     * LIST command - show config values.
+     * Usage: list [prefix | email | targets | aliases]
+     */
+    private fun handleList(args: String): CommandResult {
         val config = configManager.load()
+        val what = args.trim().lowercase()
         
-        val mailUrl = config.mailEndpointUrl ?: ""
-        val targetsText = if (config.targets.isEmpty()) {
-            "(none)"
-        } else {
-            config.targets.joinToString("\n")
+        return when (what) {
+            "prefix" -> {
+                CommandResult.Success("prefix=${config.prefix}")
+            }
+            "email" -> {
+                val mailUrl = config.mailEndpointUrl ?: "(not configured)"
+                CommandResult.Success("mailEndpointUrl=$mailUrl")
+            }
+            "targets" -> {
+                val text = if (config.targets.isEmpty()) {
+                    "(none)"
+                } else {
+                    config.targets.joinToString("\n")
+                }
+                CommandResult.Success(text)
+            }
+            "aliases" -> {
+                val text = if (config.aliases.isEmpty()) {
+                    "(none)"
+                } else {
+                    config.aliases.entries.joinToString("\n") { (name, value) -> "$name=$value" }
+                }
+                CommandResult.Success(text)
+            }
+            "" -> {
+                CommandResult.Success("list [prefix | email | targets | aliases]")
+            }
+            else -> {
+                CommandResult.Error("list [prefix | email | targets | aliases]")
+            }
         }
-        
-        val reply = "mailEndpointUrl=$mailUrl\ntargets\n$targetsText"
-        
-        SmashLogger.info("LIST command executed")
-        return CommandResult.Success(reply)
     }
 
     /**
@@ -127,7 +172,6 @@ class CommandProcessor(
         val (newConfig, wasAdded) = configManager.load().addTarget(target)
         
         if (!wasAdded) {
-            SmashLogger.info("ADD command: target '$target' already exists")
             return CommandResult.Success(REPLY_EXISTS)
         }
 
@@ -156,7 +200,6 @@ class CommandProcessor(
         val (newConfig, wasRemoved) = configManager.load().removeTarget(target)
         
         if (!wasRemoved) {
-            SmashLogger.info("REMOVE command: target '$target' not found")
             return CommandResult.Success("$target not found")
         }
 
@@ -179,7 +222,6 @@ class CommandProcessor(
         
         // If empty, prefix is unchanged
         if (newPrefix.isEmpty()) {
-            SmashLogger.info("PREFIX command with empty value, prefix unchanged")
             return CommandResult.Error(REPLY_INVALID_COMMAND)
         }
 
@@ -234,7 +276,7 @@ class CommandProcessor(
     }
 
     /**
-     * SEND command - send SMS to specified number.
+     * SEND command - send SMS to specified number or alias.
      */
     private fun handleSend(args: String): CommandResult {
         val parsed = CommandParser.parseSendCommand(args)
@@ -244,18 +286,23 @@ class CommandProcessor(
             return CommandResult.Error(REPLY_INVALID_COMMAND)
         }
 
-        val (number, text) = parsed
-        val cleanedNumber = PhoneUtils.cleanPhone(number)
+        val (numberOrAlias, text) = parsed
+        val config = configManager.load()
+        
+        // Resolve alias if it exists
+        val resolved = config.resolveAlias(numberOrAlias)
+        val cleanedNumber = PhoneUtils.cleanPhone(resolved)
         
         if (cleanedNumber.isEmpty()) {
-            SmashLogger.warning("SEND command: invalid phone number '$number'")
+            SmashLogger.warning("SEND command: invalid phone number '$numberOrAlias' (resolved to '$resolved')")
             return CommandResult.Error(REPLY_FAILED)
         }
 
         val success = SmsUtils.sendSms(context, cleanedNumber, text)
         
         return if (success) {
-            SmashLogger.info("SEND command: sent to $cleanedNumber")
+            val logMsg = if (resolved != numberOrAlias) "sent to $numberOrAlias ($cleanedNumber)" else "sent to $cleanedNumber"
+            SmashLogger.info("SEND command: $logMsg")
             CommandResult.Success(REPLY_SENT)
         } else {
             SmashLogger.error("SEND command: failed to send to $cleanedNumber")
@@ -283,7 +330,6 @@ class CommandProcessor(
             logLines
         }
 
-        SmashLogger.info("LOG command: returned $count lines")
         return CommandResult.Success(reply)
     }
 
@@ -327,4 +373,71 @@ class CommandProcessor(
             CommandResult.Error("failed to email log")
         }
     }
+
+    /**
+     * ALIAS command - set or remove an alias for a phone number.
+     * Usage: alias <name> <number> | alias <name> remove
+     */
+    private fun handleAlias(args: String): CommandResult {
+        val parts = args.trim().split(Regex("\\s+"), limit = 2)
+        
+        if (parts.size < 2) {
+            // If just a name, show that alias
+            if (parts.size == 1 && parts[0].isNotEmpty()) {
+                val config = configManager.load()
+                val entry = config.aliases.entries.firstOrNull { (k, _) -> 
+                    k.equals(parts[0], ignoreCase = true) 
+                }
+                return if (entry != null) {
+                    CommandResult.Success("${entry.key}=${entry.value}")
+                } else {
+                    CommandResult.Error("alias '${parts[0]}' not found")
+                }
+            }
+            return CommandResult.Error(REPLY_INVALID_COMMAND)
+        }
+
+        val (name, value) = parts
+        
+        // Handle "alias <name> remove"
+        if (value.equals("remove", ignoreCase = true)) {
+            val (newConfig, wasRemoved) = configManager.load().removeAlias(name)
+            
+            if (!wasRemoved) {
+                return CommandResult.Error(REPLY_NOT_FOUND)
+            }
+
+            val saved = configManager.save(newConfig)
+            
+            if (!saved) {
+                SmashLogger.error("ALIAS command: failed to save config")
+                return CommandResult.Error(REPLY_PERSIST_FAILED)
+            }
+
+            SmashLogger.info("ALIAS command: removed '$name'")
+            return CommandResult.Success(REPLY_REMOVED)
+        }
+        
+        // Don't allow alias names that look like phone numbers
+        if (name.any { it.isDigit() }) {
+            return CommandResult.Error("alias name should not contain digits")
+        }
+        
+        // Don't allow email addresses as alias values
+        if (value.contains('@')) {
+            return CommandResult.Error("alias only supports phone numbers")
+        }
+
+        val newConfig = configManager.load().setAlias(name, value)
+        val saved = configManager.save(newConfig)
+        
+        if (!saved) {
+            SmashLogger.error("ALIAS command: failed to save config")
+            return CommandResult.Error(REPLY_PERSIST_FAILED)
+        }
+
+        SmashLogger.info("ALIAS command: set $name=${value}")
+        return CommandResult.Success("alias $name set")
+    }
+
 }

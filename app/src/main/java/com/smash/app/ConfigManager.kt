@@ -3,6 +3,7 @@ package com.smash.app
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
@@ -13,7 +14,15 @@ import kotlin.concurrent.write
  */
 class ConfigManager(private val context: Context) {
 
+    /**
+     * Listener for config changes.
+     */
+    fun interface OnConfigChangedListener {
+        fun onConfigChanged(config: SmashConfig)
+    }
+
     private val lock = ReentrantReadWriteLock()
+    private val listeners = CopyOnWriteArrayList<OnConfigChangedListener>()
     
     @Volatile
     private var cachedConfig: SmashConfig? = null
@@ -67,11 +76,13 @@ class ConfigManager(private val context: Context) {
                 // Atomic rename
                 if (tempFile.renameTo(configFile)) {
                     cachedConfig = validConfig
+                    notifyListeners(validConfig)
                     true
                 } else {
                     // Fallback: direct write if rename fails
                     configFile.writeText(jsonString, Charsets.UTF_8)
                     cachedConfig = validConfig
+                    notifyListeners(validConfig)
                     true
                 }
             } catch (e: IOException) {
@@ -121,6 +132,26 @@ class ConfigManager(private val context: Context) {
             config.targets.forEach { target ->
                 appendLine("  - $target")
             }
+        }
+    }
+
+    /**
+     * Add a listener for config changes.
+     */
+    fun addOnConfigChangedListener(listener: OnConfigChangedListener) {
+        listeners.add(listener)
+    }
+
+    /**
+     * Remove a listener for config changes.
+     */
+    fun removeOnConfigChangedListener(listener: OnConfigChangedListener) {
+        listeners.remove(listener)
+    }
+
+    private fun notifyListeners(config: SmashConfig) {
+        for (listener in listeners) {
+            listener.onConfigChanged(config)
         }
     }
 }

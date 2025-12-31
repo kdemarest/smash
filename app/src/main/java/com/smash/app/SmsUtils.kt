@@ -45,7 +45,6 @@ object SmsUtils {
                     null, // sent intent
                     null  // delivery intent
                 )
-                SmashLogger.info("SMS sent to $cleanedNumber (${message.length} chars)")
             } else {
                 // Multipart SMS
                 val parts = smsManager.divideMessage(message)
@@ -56,11 +55,16 @@ object SmsUtils {
                     null, // sent intents
                     null  // delivery intents
                 )
-                SmashLogger.info("SMS sent to $cleanedNumber (${message.length} chars, ${parts.size} parts)")
             }
             true
+        } catch (e: SecurityException) {
+            SmashLogger.error("FORWARD FAILED to $cleanedNumber: SMS permission denied - ${e.message}")
+            false
+        } catch (e: IllegalArgumentException) {
+            SmashLogger.error("FORWARD FAILED to $cleanedNumber: Invalid phone number or message - ${e.message}")
+            false
         } catch (e: Exception) {
-            SmashLogger.error("sendSms failed to $cleanedNumber", e)
+            SmashLogger.error("FORWARD FAILED to $cleanedNumber: ${e.javaClass.simpleName}: ${e.message}")
             false
         }
     }

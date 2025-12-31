@@ -99,7 +99,7 @@ install.cmd    # installs to connected device
 
 ### 1.3 Network Requirements
 Ensure the phone has:
-- Active mobile data or Wi-Fi (for HTTP POST to Postmark)
+- Active mobile data or Wi-Fi (for HTTP POST to email endpoint)
 - No VPN or firewall blocking outbound HTTPS traffic
 
 ---
@@ -166,7 +166,7 @@ The app requires these runtime permissions:
 | `SEND_SMS` | Send SMS (forwards & replies) |
 | `READ_SMS` | Required for default SMS app |
 | `READ_PHONE_STATE` | Access phone number info |
-| `INTERNET` | HTTP POST to Postmark |
+| `INTERNET` | HTTP POST to email endpoint |
 | `FOREGROUND_SERVICE` | Keep service running |
 | `POST_NOTIFICATIONS` | Show foreground notification (Android 13+) |
 
@@ -177,69 +177,157 @@ The app requires these runtime permissions:
 
 ---
 
-## 5. Postmark Setup
+## 5. AWS SES + Lambda Setup
 
-Postmark is used to forward SMS content to email addresses.
+AWS SES (Simple Email Service) is used to forward SMS content to email addresses. A Lambda function provides a public URL that the smash app calls.
 
-### 5.1 Create Postmark Account
-1. Go to [https://postmarkapp.com](https://postmarkapp.com)
-2. Sign up for an account
-3. Verify your email address
+### 5.1 Verify Your Email Address in SES
 
-### 5.2 Create a Server
-1. In Postmark dashboard, click **Servers**
-2. Create a new server (e.g., "smash-forwarder")
-3. Note the **Server API Token** (you'll need this)
+1. Go to [AWS SES Console](https://console.aws.amazon.com/ses/)
+2. In the left sidebar, click **Identities**
+3. Click **Create identity**
+4. Choose **Email address**
+5. Enter the email address you want to send FROM (e.g., `sms-forwarder@yourdomain.com`)
+6. Click **Create identity**
+7. Check your email inbox and click the verification link
 
-### 5.3 Verify Sender Signature
-1. Go to **Sender Signatures**
-2. Add and verify the email domain or address you'll send FROM
-3. Complete DNS verification (DKIM, Return-Path) for domain-level verification
+> **Note:** New SES accounts are in "sandbox mode" - you can only send to verified email addresses. See section 5.9 below to request production access.
 
-### 5.4 Create an HTTP Endpoint (Webhook Proxy)
+> **Custom Domain Setup (Recommended for Production Access):** AWS reviews your account before granting production access. Having a legitimate website at your domain helps prove you're not a spammer. For example, to set up GitHub Pages with a custom domain:
+> 1. Create a GitHub repo named `yourdomain.com` and enable GitHub Pages
+> 2. In Route 53 (or your DNS provider), add A records pointing to GitHub's IPs:
+>    - `185.199.108.153`
+>    - `185.199.109.153`
+>    - `185.199.110.153`
+>    - `185.199.111.153`
+> 3. Add a CNAME record: `www` → `yourusername.github.io`
+> 4. Add some basic content to show it's a real domain you control
 
-Since smash sends a custom JSON format, you need a small serverless function or endpoint to translate the request to Postmark's API format.
+### 5.2 Create the Lambda Function
 
-#### Example: Cloudflare Worker / AWS Lambda / Vercel Function
+1. Go to [AWS Lambda Console](https://console.aws.amazon.com/lambda/)
+2. Click **Create function**
+3. Choose **Author from scratch**
+4. Configure:
+   - **Function name:** `smash-email-forwarder`
+   - **Runtime:** `Node.js 20.x`
+   - **Architecture:** `arm64` (cheaper) or `x86_64`
+5. Click **Create function**
 
-Your endpoint receives:
-```json
-{
-  "origin": "+15551234567",
-  "destination_email": "user@example.com",
-  "body": "SMS message content",
-  "timestamp": 1703961600000
-}
-```
+### 5.3 Add the Code
 
-Your endpoint calls Postmark API:
 ```bash
-POST https://api.postmarkapp.com/email
-Headers:
-  X-Postmark-Server-Token: <your-server-token>
-  Content-Type: application/json
+node deploy-lambdas.js
+```
+This creates everything automatically (IAM role, Lambda, API Gateway) and sets the `FROM_EMAIL` from your `SMASH_FROM_EMAIL` environment variable.
 
-Body:
-{
-  "From": "sms-forwarder@yourdomain.com",
-  "To": "user@example.com",
-  "Subject": "SMS from +15551234567",
-  "TextBody": "SMS message content\n\nReceived: 2024-12-30 12:00:00"
-}
+### 5.4 Grant SES Permissions to Lambda
+
+1. In the Lambda console, go to **Configuration > Permissions**
+2. Click the **Role name** link (opens IAM console)
+3. Click **Add permissions > Attach policies**
+4. Search for `AmazonSESFullAccess` and select it
+5. Click **Add permissions**
+
+> For tighter security, create a custom policy with only `ses:SendEmail` permission.
+
+### 5.5 Add API Gateway Trigger (Public URL)
+
+1. In the Lambda console, go to **Configuration > Triggers**
+2. Click **Add trigger**
+3. Select **API Gateway**
+4. Configure:
+   - **Create a new API**
+   - **API type:** HTTP API
+   - **Security:** Open (or add API key for security)
+5. Click **Add**
+6. Click **Configuration** tab
+7. Note the **API endpoint** URL - it looks like:
+   ```
+   https://abc123xyz.execute-api.us-east-1.amazonaws.com/default/smash-email-forwarder
+   ```
+
+### 5.6 Test the Lambda
+
+You can test from the Lambda console:
+
+1. Go to **Test** tab
+2. Create a test event with this JSON:
+   ```json
+   {
+     "body": {
+       "origin": "+15551234567",
+       "destination_email": "ken.demarest@gmail.com",
+       "body": "SES Test message",
+       "timestamp": 1735600000000
+     }
+   }
+   ```
+3. Click **Test**
+4. Check your email!
+
+Or test with curl (after setting the environment variable below):
+```bash
+testaws.cmd
 ```
 
-### 5.5 Configure smash with the Endpoint
+### 5.7 Set Environment Variables
+
+Store your configuration in environment variables:
+```
+setx SMASH_FROM_EMAIL "sms@yourdomain.com"
+setx SMASH_EMAIL_ENDPOINT "https://abc123xyz.execute-api.us-east-1.amazonaws.com/smash-email-forwarder"
+setx SMASH_PERSONAL_EMAIL "you@example.com"
+```
+Then open a new terminal for them to take effect.
+
+| Variable | Purpose |
+|----------|---------|
+| `SMASH_FROM_EMAIL` | Your SES-verified "from" address (used by deploy-lambdas.js) |
+| `SMASH_EMAIL_ENDPOINT` | Your Lambda API Gateway URL (used by testaws.cmd) |
+| `SMASH_PERSONAL_EMAIL` | Your email for testing (used by testaws.cmd) |
+
+### 5.8 Configure smash with the Endpoint
+
 Send this SMS command to the phone running smash:
 ```
-Cmd setmail https://your-endpoint.example.com/forward
+Cmd setmail https://abc123xyz.execute-api.us-east-1.amazonaws.com/default/smash-email-forwarder
 ```
 
 Reply should be: `mail endpoint set`
 
-### 5.6 Postmark Pricing Notes
-- Free tier: 100 emails/month
-- Paid plans start at $15/month for 10,000 emails
-- Monitor usage in Postmark dashboard
+### 5.8 AWS Pricing Notes
+
+This setup is essentially free for low volume:
+- **Lambda:** 1 million free requests/month, then $0.20 per million
+- **API Gateway:** 1 million free requests/month, then $1.00 per million  
+- **SES:** $0.10 per 1,000 emails (no free tier, but 1000 emails = $0.10)
+
+For typical SMS forwarding usage, expect <$1/month.
+
+### 5.9 Request SES Production Access
+
+By default, SES is in "sandbox mode" - you can only send to verified email addresses. To send to any address:
+
+1. Go to [AWS SES Console](https://console.aws.amazon.com/ses/)
+2. In the left sidebar, click **Account dashboard**
+3. In the "Your account is in the sandbox" banner, click **Request production access**
+4. Fill out the form:
+   - **Mail type:** Transactional
+   - **Website URL:** Your domain (e.g., `https://yourdomain.com`) - this is why setting up GitHub Pages helps
+   - **Use case description:** Be honest and specific. Example:
+     ```
+     Personal SMS forwarding application. The app runs on my Android phone and 
+     forwards incoming SMS messages to my email address for backup/notification 
+     purposes. Expected volume is very low (under 100 emails/month). Recipients 
+     are only myself and family members who have explicitly requested forwarding.
+     No marketing or bulk email.
+     ```
+   - **Additional contacts:** Add your email
+   - **Preferred contact language:** English
+5. Click **Submit request**
+
+AWS typically reviews within 24 hours. They may ask follow-up questions. Having a real website at your domain significantly helps approval.
 
 ---
 
@@ -338,8 +426,8 @@ adb shell am start -n com.example.smash/.MainActivity
 
 ### 9.2 Network Security
 - Use HTTPS for the mail endpoint
-- Consider IP whitelisting on your endpoint if possible
-- Monitor Postmark for unusual activity
+- Consider IP whitelisting on your Lambda/API Gateway if possible
+- Monitor AWS CloudWatch logs for unusual activity
 
 ### 9.3 No Authentication
 - smash has no authentication mechanism
@@ -368,6 +456,7 @@ Or via **Settings > Apps > smash > Uninstall**
 
 | Command | Description |
 |---------|-------------|
+| `Cmd help` | List all commands |
 | `Cmd add <target>` | Add phone/email to targets |
 | `Cmd remove <target>` | Remove from targets |
 | `Cmd list` | Show config |
@@ -375,4 +464,5 @@ Or via **Settings > Apps > smash > Uninstall**
 | `Cmd setmail <url>` | Set email endpoint |
 | `Cmd setmail disable` | Disable email forwarding |
 | `Cmd log [n]` | Show last n log lines |
+| `Cmd emaillog <address>` | Email log to address |
 | `Cmd prefix <new>` | Change command prefix |

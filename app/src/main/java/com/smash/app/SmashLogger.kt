@@ -4,6 +4,7 @@ import android.content.Context
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -18,6 +19,14 @@ object SmashLogger {
     private const val LOG_FILENAME = "smash.log"
     private val lock = ReentrantLock()
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
+    private val listeners = CopyOnWriteArrayList<OnLogChangedListener>()
+
+    /**
+     * Listener for log changes.
+     */
+    fun interface OnLogChangedListener {
+        fun onLogChanged()
+    }
 
     enum class Level(val tag: String) {
         INFO("[info]"),
@@ -88,6 +97,7 @@ object SmashLogger {
                 android.util.Log.e("SmashLogger", "Failed to write log: ${e.message}")
             }
         }
+        notifyListeners()
     }
 
     /**
@@ -126,6 +136,27 @@ object SmashLogger {
             } catch (e: Exception) {
                 // Ignore
             }
+        }
+        notifyListeners()
+    }
+
+    /**
+     * Add a listener for log changes.
+     */
+    fun addOnLogChangedListener(listener: OnLogChangedListener) {
+        listeners.add(listener)
+    }
+
+    /**
+     * Remove a listener for log changes.
+     */
+    fun removeOnLogChangedListener(listener: OnLogChangedListener) {
+        listeners.remove(listener)
+    }
+
+    private fun notifyListeners() {
+        for (listener in listeners) {
+            listener.onLogChanged()
         }
     }
 }

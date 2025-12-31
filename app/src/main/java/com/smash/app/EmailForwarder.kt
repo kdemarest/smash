@@ -10,7 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * JSON payload for email forwarding via Postmark.
+ * JSON payload for email forwarding via mailEndpointUrl.
  */
 @Serializable
 data class EmailForwardPayload(
@@ -63,24 +63,43 @@ object EmailForwarder {
 
         val jsonBody = json.encodeToString(payload)
         
-        val request = Request.Builder()
-            .url(endpointUrl)
-            .post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
-            .header("Content-Type", "application/json")
-            .build()
+        val request = try {
+            Request.Builder()
+                .url(endpointUrl)
+                .post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+                .header("Content-Type", "application/json")
+                .build()
+        } catch (e: Exception) {
+            SmashLogger.error("FORWARD FAILED to $destinationEmail: URL '$endpointUrl' is invalid - ${e.javaClass.simpleName}: ${e.message}")
+            return false
+        }
 
         return try {
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    SmashLogger.info("Email forward to $destinationEmail succeeded (${response.code})")
+                    //SmashLogger.info("Forwarded to $destinationEmail via $endpointUrl (HTTP ${response.code})")
                     true
                 } else {
-                    SmashLogger.error("Email forward to $destinationEmail failed: HTTP ${response.code} - ${response.message}")
+                    val responseBody = try { response.body?.string()?.take(200) } catch (e: Exception) { null }
+                    SmashLogger.error("FORWARD FAILED to $destinationEmail: HTTP ${response.code} ${response.message} from $endpointUrl" + 
+                        if (responseBody.isNullOrBlank()) "" else " - Response: $responseBody")
                     false
                 }
             }
+        } catch (e: java.net.UnknownHostException) {
+            SmashLogger.error("FORWARD FAILED to $destinationEmail: Cannot resolve host for '$endpointUrl' - check URL or internet connection")
+            false
+        } catch (e: java.net.ConnectException) {
+            SmashLogger.error("FORWARD FAILED to $destinationEmail: Cannot connect to '$endpointUrl' - ${e.message}")
+            false
+        } catch (e: java.net.SocketTimeoutException) {
+            SmashLogger.error("FORWARD FAILED to $destinationEmail: Connection timed out to '$endpointUrl'")
+            false
+        } catch (e: javax.net.ssl.SSLException) {
+            SmashLogger.error("FORWARD FAILED to $destinationEmail: SSL/TLS error for '$endpointUrl' - ${e.message}")
+            false
         } catch (e: Exception) {
-            SmashLogger.error("Email forward to $destinationEmail failed: ${e.message}")
+            SmashLogger.error("FORWARD FAILED to $destinationEmail: ${e.javaClass.simpleName}: ${e.message} - URL was '$endpointUrl'")
             false
         }
     }

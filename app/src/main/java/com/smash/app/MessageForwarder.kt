@@ -45,16 +45,22 @@ class MessageForwarder(private val context: Context) {
         var failureCount = 0
 
         for (target in targets) {
-            val success = if (PhoneUtils.isEmail(target)) {
-                forwardToEmail(sender, body, timestamp, target, config.mailEndpointUrl)
+            val isEmail = PhoneUtils.isEmail(target)
+            //SmashLogger.info("Processing target: $target (isEmail=$isEmail)")
+            
+            val success = if (isEmail) {
+                val displayName = ContactsHelper.getDisplayName(context, sender, config)
+                forwardToEmail(displayName, body, timestamp, target, config.mailEndpointUrl)
             } else {
-                forwardToPhone(sender, body, target)
+                val displayName = ContactsHelper.getDisplayNameShort(context, sender, config)
+                forwardToPhone(displayName, body, target)
             }
 
             if (success) {
                 successCount++
             } else {
                 failureCount++
+                // Detailed error already logged by forwardToEmail/forwardToPhone
             }
         }
 
@@ -72,10 +78,10 @@ class MessageForwarder(private val context: Context) {
         mailEndpointUrl: String?
     ): Boolean {
         if (mailEndpointUrl.isNullOrBlank()) {
-            SmashLogger.warning("Cannot forward to $email: mailEndpointUrl not configured")
+            SmashLogger.error("FORWARD FAILED to $email: mailEndpointUrl is not configured! Use 'Cmd setmail <url>' to set it.")
             return false
         }
-
+        
         return EmailForwarder.forward(
             endpointUrl = mailEndpointUrl,
             origin = sender,
@@ -89,23 +95,18 @@ class MessageForwarder(private val context: Context) {
      * Forward to a phone target via SMS.
      */
     private fun forwardToPhone(
-        sender: String,
+        displayName: String,
         body: String,
         phoneNumber: String
     ): Boolean {
         val cleanedNumber = PhoneUtils.cleanPhone(phoneNumber)
         
         if (cleanedNumber.isEmpty()) {
-            SmashLogger.error("Cannot forward to '$phoneNumber': invalid phone number")
+            SmashLogger.error("FORWARD FAILED to '$phoneNumber': not a valid phone number (cleaned to empty string)")
             return false
         }
 
-        val success = SmsUtils.sendSms(context, cleanedNumber, body)
-        
-        if (!success) {
-            SmashLogger.error("Failed to forward SMS to $cleanedNumber")
-        }
-        
-        return success
+        val prefixedBody = "$displayName: $body"
+        return SmsUtils.sendSms(context, cleanedNumber, prefixedBody)
     }
 }

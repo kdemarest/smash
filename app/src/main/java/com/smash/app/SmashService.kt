@@ -113,7 +113,6 @@ class SmashService : Service() {
 
         // Check if this is a command
         if (CommandParser.isCommand(body, prefix)) {
-            SmashLogger.info("SMS is a command from ${sms.sender}")
             val result = commandProcessor.process(sms.sender, body)
             SmsUtils.sendReply(this, sms.sender, result.reply)
         } else {

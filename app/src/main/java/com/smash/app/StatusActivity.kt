@@ -1,6 +1,8 @@
 package com.smash.app
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -16,6 +18,18 @@ class StatusActivity : AppCompatActivity() {
     private lateinit var targetsValue: TextView
     private lateinit var logValue: TextView
     private lateinit var logScrollView: ScrollView
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    
+    private val configListener = ConfigManager.OnConfigChangedListener { config ->
+        // Config changed, update UI on main thread
+        mainHandler.post { updateConfigDisplay(config) }
+    }
+
+    private val logListener = SmashLogger.OnLogChangedListener {
+        // Log changed, update UI on main thread
+        mainHandler.post { loadLog() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,14 +47,27 @@ class StatusActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Register for config and log changes
+        SmashApplication.getConfigManager().addOnConfigChangedListener(configListener)
+        SmashLogger.addOnLogChangedListener(logListener)
         // Refresh config and log when returning to activity
         loadConfig()
         loadLog()
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Unregister when not visible
+        SmashApplication.getConfigManager().removeOnConfigChangedListener(configListener)
+        SmashLogger.removeOnLogChangedListener(logListener)
+    }
+
     private fun loadConfig() {
         val config = SmashApplication.getConfigManager().load()
+        updateConfigDisplay(config)
+    }
 
+    private fun updateConfigDisplay(config: SmashConfig) {
         prefixValue.text = config.prefix
 
         mailEndpointValue.text = if (config.mailEndpointUrl.isNullOrBlank()) {
