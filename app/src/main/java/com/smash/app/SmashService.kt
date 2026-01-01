@@ -60,7 +60,7 @@ class SmashService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        SmashLogger.info("SmashService onCreate")
+        SmashLogger.verbose("SmashService onCreate")
         createNotificationChannel()
         
         // Initialize command processor
@@ -83,7 +83,7 @@ class SmashService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        SmashLogger.info("SmashService onStartCommand")
+        SmashLogger.verbose("SmashService onStartCommand")
         
         // Start foreground immediately with "checking" status to avoid ANR
         val initialNotification = createNotification(checking = true)
@@ -100,7 +100,7 @@ class SmashService : Service() {
         instance = null
         messageProcessor.stop()
         mmsObserver.unregister()
-        SmashLogger.info("SmashService onDestroy")
+        SmashLogger.verbose("SmashService onDestroy")
     }
 
     /**

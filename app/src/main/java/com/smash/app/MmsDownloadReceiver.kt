@@ -24,7 +24,7 @@ class MmsDownloadReceiver : BroadcastReceiver() {
         
         when (resultCode) {
             Activity.RESULT_OK -> {
-                SmashLogger.info("MmsDownloadReceiver: MMS download completed successfully")
+                SmashLogger.verbose("MmsDownloadReceiver: MMS download completed successfully")
                 
                 // Get the PDU file path from the intent
                 val pduPath = intent.getStringExtra("pdu_path")
@@ -36,7 +36,7 @@ class MmsDownloadReceiver : BroadcastReceiver() {
                 // Parse the PDU file directly
                 val message = parsePduFile(context, pduPath)
                 if (message != null) {
-                    SmashLogger.info("MmsDownloadReceiver: parsed MMS from ${message.sender} with ${message.attachments.size} attachments")
+                    SmashLogger.verbose("MmsDownloadReceiver: parsed MMS from ${message.sender} with ${message.attachments.size} attachments")
                     SmashService.getInstance()?.enqueueMessage(message)
                 } else {
                     SmashLogger.error("MmsDownloadReceiver: failed to parse PDU file")
@@ -83,7 +83,7 @@ class MmsDownloadReceiver : BroadcastReceiver() {
             return null
         }
         
-        SmashLogger.info("MmsDownloadReceiver: parsing ${pduBytes.size} bytes from PDU file")
+        SmashLogger.verbose("MmsDownloadReceiver: parsing ${pduBytes.size} bytes from PDU file")
         
         val pdu = try {
             PduParser(pduBytes, true).parse()
@@ -124,7 +124,7 @@ class MmsDownloadReceiver : BroadcastReceiver() {
             return null
         }
         
-        SmashLogger.info("MmsDownloadReceiver: sender=$sender")
+        SmashLogger.verbose("MmsDownloadReceiver: sender=$sender")
         
         // Extract body and attachments from PduBody
         val pduBody = pdu.body
@@ -136,14 +136,14 @@ class MmsDownloadReceiver : BroadcastReceiver() {
                 val part = pduBody.getPart(i)
                 val contentType = String(part.contentType ?: continue)
                 
-                SmashLogger.info("MmsDownloadReceiver: part $i contentType=$contentType")
+                SmashLogger.verbose("MmsDownloadReceiver: part $i contentType=$contentType")
                 
                 when {
                     contentType == "text/plain" -> {
                         val textBytes = part.data
                         if (textBytes != null) {
                             textBody = String(textBytes, Charsets.UTF_8)
-                            SmashLogger.info("MmsDownloadReceiver: text body: $textBody")
+                            SmashLogger.verbose("MmsDownloadReceiver: text body: $textBody")
                         }
                     }
                     contentType.startsWith("image/") -> {
@@ -154,7 +154,7 @@ class MmsDownloadReceiver : BroadcastReceiver() {
                                 mimeType = contentType,
                                 data = imageData
                             ))
-                            SmashLogger.info("MmsDownloadReceiver: image attachment ${imageData.size} bytes, type=$contentType")
+                            SmashLogger.verbose("MmsDownloadReceiver: image attachment ${imageData.size} bytes, type=$contentType")
                         } else {
                             SmashLogger.warning("MmsDownloadReceiver: image part has no data (contentType=$contentType)")
                         }

@@ -21,15 +21,13 @@ class SmashApplication : Application() {
         // Initialize config manager and load config
         configManager = ConfigManager(this)
         val config = configManager.load()
+        
+        // Set verbose mode from config
+        SmashLogger.isVerbose = config.verbose
 
-        // Log startup
-        SmashLogger.info("smash starting")
-        SmashLogger.info("prefix=${config.prefix}")
-        SmashLogger.info("mailEndpointUrl=${config.mailEndpointUrl ?: "null"}")
-        SmashLogger.info("targets count=${config.targets.size}")
-        config.targets.forEach { target ->
-            SmashLogger.info("  target: $target")
-        }
+        // Log startup (compact)
+        val verboseFlag = if (config.verbose) " [verbose]" else ""
+        SmashLogger.info("smash starting$verboseFlag, ${config.targets.size} targets")
     }
 
     companion object {

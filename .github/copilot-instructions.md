@@ -14,3 +14,5 @@
 NOTE: Do not build or install. Let the user do that.
 Note: Do not deploy the lambdas. Simply tell the user it needs to be done.
 
+Be sure to consult mmsnotes.md when working with MMS!
+

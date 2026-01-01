@@ -36,6 +36,10 @@ object SmashLogger {
     }
 
     private var logFile: File? = null
+    
+    // Verbose mode - when true, detailed logs are written; when false, only essential logs
+    @Volatile
+    var isVerbose: Boolean = false
 
     /**
      * Initialize the logger with app context.
@@ -44,6 +48,18 @@ object SmashLogger {
     fun init(context: Context) {
         lock.withLock {
             logFile = File(context.filesDir, LOG_FILENAME)
+        }
+    }
+
+    /**
+     * Log a verbose message (only written if verbose mode is enabled).
+     */
+    fun verbose(message: String) {
+        if (isVerbose) {
+            log(Level.INFO, message)
+        } else {
+            // Still output to logcat for debugging, but not to file
+            android.util.Log.v("SmashLogger", message)
         }
     }
 

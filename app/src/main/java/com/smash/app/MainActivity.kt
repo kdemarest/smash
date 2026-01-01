@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
     ) { permissions ->
         val allGranted = permissions.all { it.value }
         if (allGranted) {
-            SmashLogger.info("All permissions granted")
+            SmashLogger.verbose("All permissions granted")
             checkDefaultSmsApp()
         } else {
             SmashLogger.warning("Some permissions denied")
@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            SmashLogger.info("Set as default SMS app")
+            SmashLogger.verbose("Set as default SMS app")
             checkBatteryOptimization()
         } else {
             SmashLogger.warning("Not set as default SMS app")
@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
     ) { _ ->
         // Check if it was actually disabled
         if (isIgnoringBatteryOptimizations()) {
-            SmashLogger.info("Battery optimization disabled")
+            SmashLogger.verbose("Battery optimization disabled")
         } else {
             SmashLogger.warning("Battery optimization still enabled")
         }
@@ -99,10 +99,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (missingPermissions.isEmpty()) {
-            SmashLogger.info("All permissions already granted")
+            SmashLogger.verbose("All permissions already granted")
             checkDefaultSmsApp()
         } else {
-            SmashLogger.info("Requesting permissions: ${missingPermissions.joinToString()}")
+            SmashLogger.verbose("Requesting permissions: ${missingPermissions.joinToString()}")
             permissionLauncher.launch(missingPermissions.toTypedArray())
         }
     }
@@ -111,10 +111,10 @@ class MainActivity : AppCompatActivity() {
         updateStatus("Checking default SMS app...")
         
         if (PhoneUtils.isDefaultSmsApp(this)) {
-            SmashLogger.info("Already default SMS app")
+            SmashLogger.verbose("Already default SMS app")
             checkBatteryOptimization()
         } else {
-            SmashLogger.info("Requesting to be default SMS app")
+            SmashLogger.verbose("Requesting to be default SMS app")
             promptForDefaultSmsApp()
         }
     }
@@ -144,10 +144,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkBatteryOptimization() {
         if (isIgnoringBatteryOptimizations()) {
-            SmashLogger.info("Battery optimization already disabled")
+            SmashLogger.verbose("Battery optimization already disabled")
             startServiceAndFinish()
         } else {
-            SmashLogger.info("Requesting battery optimization exemption")
+            SmashLogger.verbose("Requesting battery optimization exemption")
             requestBatteryOptimizationExemption()
         }
     }

@@ -2,4 +2,6 @@
 <paths>
     <!-- MMS download temp files in cache directory -->
     <cache-path name="mms_download" path="mms_download/" />
+    <!-- MMS send temp files in cache directory -->
+    <cache-path name="mms_send" path="mms_send/" />
 </paths>

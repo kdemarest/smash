@@ -25,7 +25,7 @@ import java.io.File
 class MmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        SmashLogger.info("MmsReceiver: WAP_PUSH_DELIVER received")
+        SmashLogger.verbose("MmsReceiver: WAP_PUSH_DELIVER received")
         
         // Get the raw WAP PDU data
         val pushData = intent.getByteArrayExtra("data")
@@ -34,7 +34,7 @@ class MmsReceiver : BroadcastReceiver() {
             return
         }
         
-        SmashLogger.info("MmsReceiver: received ${pushData.size} bytes of WAP push data")
+        SmashLogger.verbose("MmsReceiver: received ${pushData.size} bytes of WAP push data")
         
         // Parse the PDU using the proven library
         val pdu = try {
@@ -65,7 +65,7 @@ class MmsReceiver : BroadcastReceiver() {
         }
         
         val contentLocation = String(contentLocationBytes)
-        SmashLogger.info("MmsReceiver: content location: $contentLocation")
+        SmashLogger.verbose("MmsReceiver: content location: $contentLocation")
         
         // Download the MMS
         downloadMms(context, contentLocation)
@@ -109,7 +109,7 @@ class MmsReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             )
             
-            SmashLogger.info("MmsReceiver: initiating download from $contentLocation to $contentUri")
+            SmashLogger.verbose("MmsReceiver: initiating download from $contentLocation to $contentUri")
             
             smsManager.downloadMultimediaMessage(
                 context,
@@ -119,7 +119,7 @@ class MmsReceiver : BroadcastReceiver() {
                 pendingIntent
             )
             
-            SmashLogger.info("MmsReceiver: download request sent")
+            SmashLogger.verbose("MmsReceiver: download request sent")
             
         } catch (e: SecurityException) {
             SmashLogger.error("MmsReceiver: download failed - permission denied", e)

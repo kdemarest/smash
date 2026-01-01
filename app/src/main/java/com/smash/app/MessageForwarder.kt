@@ -15,7 +15,7 @@ data class ForwardResult(
 
 /**
  * Forwards incoming SMS/MMS messages to configured targets.
- * - Phone targets: sends SMS via SmsUtils (images not yet supported for phone targets)
+ * - Phone targets: sends SMS for text-only, MMS for messages with images
  * - Email targets: POSTs to mailEndpointUrl via EmailForwarder (includes images)
  */
 class MessageForwarder(private val context: Context) {
@@ -119,8 +119,8 @@ class MessageForwarder(private val context: Context) {
     }
 
     /**
-     * Forward to a phone target via SMS.
-     * Note: Images are not forwarded to phone targets (would require MMS sending).
+     * Forward to a phone target via SMS or MMS.
+     * Uses MMS if there are image attachments, SMS otherwise.
      */
     private fun forwardToPhone(
         displayName: String,
@@ -134,15 +134,24 @@ class MessageForwarder(private val context: Context) {
             return false
         }
 
-        // Build the message body
-        var prefixedBody = "$displayName: ${message.body}"
+        // Build the message body with sender prefix
+        val prefixedBody = "$displayName: ${message.body}"
         
-        // If there were images but we can't forward them, note it
-        if (message.hasImages) {
-            val imageCount = message.imageAttachments.size
-            prefixedBody += " [${imageCount} image${if (imageCount > 1) "s" else ""} not forwarded]"
+        // Log any non-image attachments that won't be forwarded via MMS
+        val skippedAttachments = message.attachments.filter { !it.mimeType.startsWith("image/") }
+        if (skippedAttachments.isNotEmpty()) {
+            val skippedTypes = skippedAttachments.map { it.mimeType }.distinct()
+            SmashLogger.warning("MessageForwarder: skipping ${skippedAttachments.size} non-image attachment(s) to phone: $skippedTypes")
         }
         
+        // If there are images, send as MMS
+        val imageAttachments = message.imageAttachments
+        if (imageAttachments.isNotEmpty()) {
+            SmashLogger.verbose("MessageForwarder: forwarding ${imageAttachments.size} image(s) via MMS to $cleanedNumber")
+            return MmsUtils.sendMms(context, cleanedNumber, prefixedBody, imageAttachments)
+        }
+        
+        // No images - send as SMS
         return SmsUtils.sendSms(context, cleanedNumber, prefixedBody)
     }
 }

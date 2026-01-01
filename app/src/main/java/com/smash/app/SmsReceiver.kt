@@ -41,7 +41,7 @@ class SmsReceiver : BroadcastReceiver() {
         // Create IncomingMessage for each complete message and enqueue
         for ((sender, bodyBuilder) in messagesBySender) {
             val body = bodyBuilder.toString()
-            SmashLogger.info("SMS received from $sender: ${body.take(50)}${if (body.length > 50) "..." else ""}")
+            SmashLogger.verbose("SMS received from $sender: ${body.take(50)}${if (body.length > 50) "..." else ""}\")
             
             val message = IncomingMessage(
                 sender = sender,

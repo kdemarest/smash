@@ -150,9 +150,9 @@ object EmailForwarder {
         // Debug: log image details
         if (images != null) {
             for ((idx, img) in images.withIndex()) {
-                SmashLogger.info("EmailForwarder: image[$idx] mimeType=${img.mimeType}, base64 length=${img.data.length}")
+                SmashLogger.verbose("EmailForwarder: image[$idx] mimeType=${img.mimeType}, base64 length=${img.data.length}")
             }
-            SmashLogger.info("EmailForwarder: total JSON payload size=${payloadSize} bytes")
+            SmashLogger.verbose("EmailForwarder: total JSON payload size=${payloadSize} bytes")
         }
         
         val request = try {
@@ -170,7 +170,7 @@ object EmailForwarder {
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     if (images != null) {
-                        SmashLogger.info("Forwarded to $destinationEmail with ${images.size} images")
+                        SmashLogger.verbose("Forwarded to $destinationEmail with ${images.size} images")
                     }
                     true
                 } else {

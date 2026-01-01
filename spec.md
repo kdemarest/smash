@@ -37,6 +37,8 @@ Fields:
   "prefix": "<Cmd_or_another_value>",
   "mailEndpointUrl": "<http_url_or_null>",
   "targets": [ "<phone_or_email>", ... ],
+  "aliases": { "<name>": "<number>", ... },
+  "verbose": false
 }
 
 prefix rules:
@@ -47,6 +49,11 @@ targets rules:
 
 mailEndpointUrl rules:
 - if null or an empty string, forwarding to email destinations is disabled
+
+verbose rules:
+- defaults to false
+- when true, detailed MMS/internal logs are written to smash.log
+- when false, only essential [SMS], [Cmd], and error logs are written
 
 # Targets
 
@@ -99,6 +106,30 @@ For each incoming non-command SMS:
 Failures:
 - HTTP failures or SMS failures do not stop processing of other destinations
 - minimal retry logic acceptable (not required by this specification)
+
+# MMS Forwarding
+
+MMS messages with images are forwarded similarly to SMS:
+- Email targets: images uploaded to S3, email contains `<img>` tags with S3 URLs
+- Phone targets: re-sent as MMS with compressed images
+- Non-image attachments (video, audio, vCard): skipped with warning logged
+
+## Image Handling
+
+All images converted to JPEG before sending. Limits (AT&T):
+- Max 10 images per MMS
+- Max 1MB total message size
+- Max 640x640 pixels per image (resized if larger)
+- Max 100KB per image after compression
+- Max 5000 characters text
+
+Images exceeding limits are compressed iteratively (quality 85→20) until within bounds.
+
+## Phone Number Formatting
+
+MMS requires E.164 format. US numbers normalized:
+- 10-digit `5551234567` → `+15551234567`
+- 11-digit `15551234567` → `+15551234567`
 
 # Command Processing
 
@@ -159,6 +190,17 @@ If a reply is longer than 160 characters (notably for the "list" and "log" comma
 - sets the <prefix> to a new value
 - if newPrefixValue is empty the prefix is unchanged
 - characters in newPrefixValue may be a-zA-Z0-9 or !@#$* otherwise the command is ignored
+
+(8) <prefix> testmms <number>
+- sends test MMS with embedded image (testImg.jpg from assets) to <number>
+- reply to origin: "MMS test sent to <number>" or error message
+
+(9) <prefix> verbose 0|1
+- toggles verbose logging mode
+- when off (default): minimal logging - just [SMS]/[Cmd] entries with brief status
+- when on: detailed MMS/internal processing logs
+- stored in smash.json
+- reply to origin: "verbose on" or "verbose off"
 
 # Command Parsing Requirements
 

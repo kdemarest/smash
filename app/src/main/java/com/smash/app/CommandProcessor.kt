@@ -38,6 +38,8 @@ class CommandProcessor(
         private const val CMD_EMAILLOG = "emaillog"
         private const val CMD_HELP = "help"
         private const val CMD_ALIAS = "alias"
+        private const val CMD_TESTMMS = "testmms"
+        private const val CMD_VERBOSE = "verbose"
 
         // Reply messages
         const val REPLY_INVALID_COMMAND = "invalid command"
@@ -66,10 +68,13 @@ class CommandProcessor(
         
         return when (parsed) {
             is ParsedCommand.Invalid -> {
+                SmashLogger.info("[Cmd] $body -> invalid")
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
             is ParsedCommand.Valid -> {
-                dispatchCommand(parsed.name, parsed.args, sender)
+                val result = dispatchCommand(parsed.name, parsed.args, sender)
+                SmashLogger.info("[Cmd] ${parsed.name} -> ${result.reply.take(50)}")
+                result
             }
         }
     }
@@ -89,6 +94,8 @@ class CommandProcessor(
             CMD_EMAILLOG -> handleEmailLog(args)
             CMD_HELP -> handleHelp()
             CMD_ALIAS -> handleAlias(args)
+            CMD_TESTMMS -> handleTestMms(args)
+            CMD_VERBOSE -> handleVerbose(args)
             else -> {
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
@@ -109,7 +116,9 @@ class CommandProcessor(
             "setmail <url/disable>",
             "send <name_or_number> <text>",
             "log [n/trim]",
-            "emaillog <address>"
+            "emaillog <address>",
+            "verbose 0|1",
+            "testmms <number>"
         ).joinToString("\n")
         
         return CommandResult.Success(help)
@@ -179,7 +188,7 @@ class CommandProcessor(
             return CommandResult.Error(REPLY_PERSIST_FAILED)
         }
 
-        SmashLogger.info("ADD command: added '$target'")
+        SmashLogger.verbose("ADD command: added '$target'")
         val totalCount = newConfig.targets.size
         return CommandResult.Success("added $target ($totalCount entries total)")
     }
@@ -207,7 +216,7 @@ class CommandProcessor(
             return CommandResult.Error(REPLY_PERSIST_FAILED)
         }
 
-        SmashLogger.info("REMOVE command: removed '$target'")
+        SmashLogger.verbose("REMOVE command: removed '$target'")
         val totalCount = newConfig.targets.size
         return CommandResult.Success("removed $target ($totalCount entries total)")
     }
@@ -236,7 +245,7 @@ class CommandProcessor(
             return CommandResult.Error(REPLY_PERSIST_FAILED)
         }
 
-        SmashLogger.info("PREFIX command: prefix changed to '$newPrefix'")
+        SmashLogger.verbose("PREFIX command: prefix changed to '$newPrefix'")
         return CommandResult.Success("prefix set to $newPrefix")
     }
 
@@ -269,7 +278,7 @@ class CommandProcessor(
         }
 
         val logMessage = if (newUrl == null) "disabled" else "set to '$newUrl'"
-        SmashLogger.info("SETMAIL command: mail endpoint $logMessage")
+        SmashLogger.verbose("SETMAIL command: mail endpoint $logMessage")
         return CommandResult.Success(REPLY_MAIL_ENDPOINT_SET)
     }
 
@@ -300,7 +309,7 @@ class CommandProcessor(
         
         return if (success) {
             val logMsg = if (resolved != numberOrAlias) "sent to $numberOrAlias ($cleanedNumber)" else "sent to $cleanedNumber"
-            SmashLogger.info("SEND command: $logMsg")
+            SmashLogger.verbose("SEND command: $logMsg")
             CommandResult.Success(REPLY_SENT)
         } else {
             SmashLogger.error("SEND command: failed to send to $cleanedNumber")
@@ -370,7 +379,7 @@ class CommandProcessor(
         )
 
         return if (success) {
-            SmashLogger.info("EMAILLOG command: sent log to $email")
+            SmashLogger.verbose("EMAILLOG command: sent log to $email")
             CommandResult.Success("log emailed to $email")
         } else {
             SmashLogger.error("EMAILLOG command: failed to send to $email")
@@ -418,7 +427,7 @@ class CommandProcessor(
                 return CommandResult.Error(REPLY_PERSIST_FAILED)
             }
 
-            SmashLogger.info("ALIAS command: removed '$name'")
+            SmashLogger.verbose("ALIAS command: removed '$name'")
             return CommandResult.Success(REPLY_REMOVED)
         }
         
@@ -440,8 +449,93 @@ class CommandProcessor(
             return CommandResult.Error(REPLY_PERSIST_FAILED)
         }
 
-        SmashLogger.info("ALIAS command: set $name=${value}")
+        SmashLogger.verbose("ALIAS command: set $name=${value}")
         return CommandResult.Success("alias $name set")
     }
 
+    /**
+     * TESTMMS command - send a test MMS with an image.
+     * Usage: testmms <phone_number>
+     * Sends testImg.jpg from assets with test text.
+     */
+    private fun handleTestMms(args: String): CommandResult {
+        val destination = args.trim()
+        if (destination.isEmpty()) {
+            return CommandResult.Error("usage: testmms <phone_number>")
+        }
+
+        val cleanedNumber = PhoneUtils.cleanPhone(destination)
+        if (cleanedNumber.isEmpty()) {
+            return CommandResult.Error("invalid phone number: $destination")
+        }
+
+        return try {
+            // Load test image from assets
+            val imageBytes = context.assets.open("testImg.jpg").use { it.readBytes() }
+            SmashLogger.verbose("TESTMMS: loaded ${imageBytes.size} bytes from testImg.jpg")
+
+            // Create attachment
+            val attachment = MediaAttachment(
+                uri = android.net.Uri.EMPTY,
+                mimeType = "image/jpeg",
+                data = imageBytes
+            )
+
+            // Send the MMS
+            val testText = "Test MMS from Smash @ ${java.text.SimpleDateFormat("HH:mm:ss").format(java.util.Date())}"
+            val success = MmsUtils.sendMms(context, cleanedNumber, testText, listOf(attachment))
+
+            if (success) {
+                SmashLogger.verbose("TESTMMS: MMS send initiated to $cleanedNumber")
+                CommandResult.Success("MMS test sent to $cleanedNumber")
+            } else {
+                CommandResult.Error("MMS send failed")
+            }
+        } catch (e: Exception) {
+            SmashLogger.error("TESTMMS: failed", e)
+            CommandResult.Error("error: ${e.message}")
+        }
+    }
+
+    /**
+     * VERBOSE command - toggle verbose logging.
+     * Usage: verbose 0|1
+     */
+    private fun handleVerbose(args: String): CommandResult {
+        val value = args.trim()
+        
+        return when (value) {
+            "1", "on", "true" -> {
+                val config = configManager.load()
+                val newConfig = config.copy(verbose = true)
+                if (configManager.save(newConfig)) {
+                    SmashLogger.isVerbose = true
+                    SmashLogger.info("verbose logging enabled")
+                    CommandResult.Success("verbose on")
+                } else {
+                    CommandResult.Error(REPLY_PERSIST_FAILED)
+                }
+            }
+            "0", "off", "false" -> {
+                val config = configManager.load()
+                val newConfig = config.copy(verbose = false)
+                if (configManager.save(newConfig)) {
+                    SmashLogger.info("verbose logging disabled")
+                    SmashLogger.isVerbose = false
+                    CommandResult.Success("verbose off")
+                } else {
+                    CommandResult.Error(REPLY_PERSIST_FAILED)
+                }
+            }
+            "" -> {
+                val current = if (SmashLogger.isVerbose) "on" else "off"
+                CommandResult.Success("verbose: $current")
+            }
+            else -> {
+                CommandResult.Error("usage: verbose 0|1")
+            }
+        }
+    }
+
 }
+

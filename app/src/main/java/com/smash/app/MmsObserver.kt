@@ -22,6 +22,7 @@ class MmsObserver(
     companion object {
         private val MMS_URI = Uri.parse("content://mms")
         private val MMS_INBOX_URI = Uri.parse("content://mms/inbox")
+        private const val MAX_PROCESSED_IDS = 100
     }
 
     // Background thread for ContentObserver callbacks
@@ -31,8 +32,8 @@ class MmsObserver(
     // Track the highest MMS ID we've seen to detect new ones
     private var lastKnownMmsId: Long = 0
     
-    // Track processed IDs to avoid duplicates (belt and suspenders)
-    private val processedIds = mutableSetOf<Long>()
+    // Track processed IDs to avoid duplicates (LinkedHashSet maintains insertion order for FIFO eviction)
+    private val processedIds = LinkedHashSet<Long>()
 
     /**
      * Register this observer with the content resolver.
@@ -62,7 +63,7 @@ class MmsObserver(
             observer!!
         )
         
-        SmashLogger.info("MmsObserver registered (last known ID: $lastKnownMmsId)")
+        SmashLogger.verbose("MmsObserver registered (last known ID: $lastKnownMmsId)")
     }
 
     /**
@@ -73,7 +74,7 @@ class MmsObserver(
         observer?.let { context.contentResolver.unregisterContentObserver(it) }
         observer = null
         handlerThread.quitSafely()
-        SmashLogger.info("MmsObserver unregistered")
+        SmashLogger.verbose("MmsObserver unregistered")
     }
 
     /**
@@ -96,7 +97,7 @@ class MmsObserver(
         
         // If we found something new, we're done
         if (lastKnownMmsId > beforeId) {
-            SmashLogger.info("MmsObserver: found new MMS after ${11 - attemptsRemaining} attempts")
+            SmashLogger.verbose("MmsObserver: found new MMS after ${11 - attemptsRemaining} attempts")
             return
         }
         
@@ -106,7 +107,7 @@ class MmsObserver(
                 checkWithRetry(attemptsRemaining - 1, delayMs)
             }, delayMs)
         } else {
-            SmashLogger.info("MmsObserver: no new MMS in database (may have been handled via direct PDU parsing)")
+            SmashLogger.verbose("MmsObserver: no new MMS in database (may have been handled via direct PDU parsing)")
         }
     }
 
@@ -117,7 +118,7 @@ class MmsObserver(
     private fun checkForNewMms() {
         val contentResolver = context.contentResolver
         
-        SmashLogger.info("MmsObserver: checking for new MMS (lastKnownId=$lastKnownMmsId)")
+        SmashLogger.verbose("MmsObserver: checking for new MMS (lastKnownId=$lastKnownMmsId)")
         
         // Query for MMS in inbox with ID greater than last known
         val cursor = contentResolver.query(
@@ -133,7 +134,7 @@ class MmsObserver(
             return
         }
         
-        SmashLogger.info("MmsObserver: found ${cursor.count} new MMS candidates")
+        SmashLogger.verbose("MmsObserver: found ${cursor.count} new MMS candidates")
         
         cursor.use {
             while (it.moveToNext()) {
@@ -151,26 +152,29 @@ class MmsObserver(
                     } else {
                         processedIds.add(mmsId)
 
-                        // Trim old IDs
-                        if (processedIds.size > 100) {
-                            val oldest = processedIds.minOrNull()
-                            if (oldest != null) processedIds.remove(oldest)
+                        // FIFO eviction: remove oldest (first inserted) when over limit
+                        while (processedIds.size > MAX_PROCESSED_IDS) {
+                            val iterator = processedIds.iterator()
+                            if (iterator.hasNext()) {
+                                iterator.next()
+                                iterator.remove()
+                            }
                         }
                         false
                     }
                 }
 
                 if (alreadyProcessed) {
-                    SmashLogger.info("MmsObserver: skipping already-processed MMS id=$mmsId")
+                    SmashLogger.verbose("MmsObserver: skipping already-processed MMS id=$mmsId")
                     continue
                 }
                 
-                SmashLogger.info("MmsObserver: extracting MMS id=$mmsId")
+                SmashLogger.verbose("MmsObserver: extracting MMS id=$mmsId")
                 
                 // Extract the MMS
                 val message = extractMms(contentResolver, mmsId)
                 if (message != null) {
-                    SmashLogger.info("MmsObserver: new MMS id=$mmsId from ${message.sender} (${message.attachments.size} attachments)")
+                    SmashLogger.verbose("MmsObserver: new MMS id=$mmsId from ${message.sender} (${message.attachments.size} attachments)")
                     // Enqueue to shared processor
                     onMmsReceived(message)
                 } else {
@@ -226,11 +230,11 @@ class MmsObserver(
             SmashLogger.warning("MmsObserver: no valid sender found for MMS id=$mmsId (may be placeholder)")
             return null
         }
-        SmashLogger.info("MmsObserver: MMS id=$mmsId sender=$sender")
+        SmashLogger.verbose("MmsObserver: MMS id=$mmsId sender=$sender")
         
         // Get body and attachments
         val (body, attachments) = extractMmsParts(contentResolver, mmsId)
-        SmashLogger.info("MmsObserver: MMS id=$mmsId body='${body.take(50)}${if (body.length > 50) "..." else ""}' attachments=${attachments.size}")
+        SmashLogger.verbose("MmsObserver: MMS id=$mmsId body='${body.take(50)}${if (body.length > 50) "..." else ""}' attachments=${attachments.size}")
         
         return IncomingMessage(
             sender = sender,

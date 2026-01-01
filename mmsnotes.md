@@ -1,46 +1,92 @@
+# MMS Notes
 
-# MMS Code Review Notes
+## Receiving MMS (IMPLEMENTED)
 
-## What’s Good / Aligned with Your Spec
+**Key Discovery:** When using `SmsManager.downloadMultimediaMessage()` as the default SMS app, the system does NOT insert the downloaded MMS into `content://mms/inbox`. You must parse the downloaded PDU file yourself.
 
-- **No “sleep then query last row” hack:**
-	- `MmsObserver` tracks `lastKnownMmsId` and queries `_id > ?` in ascending order. This is the cleanest minimal strategy.
-- **Work off main thread:**
-	- `MmsObserver` uses a `HandlerThread`, so querying and part extraction won’t block the broadcast thread/UI.
-- **Forwarding only images to email (not MMS):**
-	- `MessageForwarder` intentionally doesn’t attempt MMS re-send to phone targets, and annotates with `[x images not forwarded]` — good and minimal.
-- **Attachment extraction:**
-	- `EmailForwarder.forwardWithAttachments()` reads attachment bytes via `contentResolver.openInputStream(uri)` which is exactly what you want for `content://mms/part/...` URIs.
+- See `MmsDownloadReceiver.kt` for implementation
+- Uses `PduParser` and `RetrieveConf` from `com.google.android.mms.pdu_alt`
+- A `ContentObserver` on `content://mms` will never fire for these downloads
 
 ---
 
-## What’s Wrong / Likely Buggy
+## Sending MMS (RESEARCH - Dec 2025)
 
-- **Bug: duplicate-detection can prematurely stop processing**
-	- In `MmsObserver.checkForNewMms()`, when an ID is already in `processedIds`, the code does `return@use`. That exits the entire cursor loop early, so you can skip later MMSes in the same query result.
-	- *Minimal fix conceptually:* it should `continue`, not `return`.
-- **`getHighestMmsId()` uses `"_id DESC LIMIT 1"`**
-	- Many Android content providers *happen* to accept `LIMIT` in the sortOrder string, but it’s not guaranteed behavior. On devices/providers that don’t support it, you can get incorrect results or exceptions.
-	- *Minimal safer pattern:* sort by `"_id DESC"` and just read the first row (no `LIMIT`).
-- **MMS sender extraction is too optimistic**
-	- `extractMmsSender()` queries `type = 137` and returns `address` verbatim.
-	- In real MMS databases you often see placeholders like `insert-address-token` or weird formatting; you should filter those out (otherwise you’ll log/forward garbage “senders”).
-- **MmsReceiver downloads to a file, but the success receiver ignores the file**
-	- Right now `MmsReceiver` creates a cache `.pdu` file + passes a `PendingIntent` to `downloadMultimediaMessage()`, but `MmsDownloadReceiver` only logs success/failure and never uses the `pdu_path`.
-	- That’s not *wrong* if your real extraction is always via `content://mms` (and it is), but it’s a smell: you’re doing extra work/permissions without any functional benefit unless the provider population depends on the download call (device-dependent).
-	- If you keep it (reasonable), at least be clear that the file is only a download sink and not a parsing input.
-- **Hard-coded MMS service package grant is fragile**
-	- `grantUriPermission("com.android.mms.service", ...)` works on AOSP-like stacks, but OEMs can vary. If MMS downloads fail on a specific device, this is a prime suspect.
-	- *Minimal robustness:* grant to any resolved handler packages for the internal MMS download service (or broaden the grant via the `PendingIntent` mechanism instead of package hard-coding). If you want to stay minimal, just be aware this is a device-compat hazard.
+### What We Have
+The `com.klinkerapps:android-smsmms:5.2.6` library (already in use for parsing) provides everything needed:
 
----
+**High-level API (recommended):**
+- `com.klinker.android.send_message.Transaction` - handles MMS sending
+- `com.klinker.android.send_message.Settings` - configuration (MMSC, proxy, etc.)
 
-## “Could Be Better” (Minimal, High Value, Not Feature Creep)
+**Low-level PDU building (if needed):**
+- `com.google.android.mms.pdu_alt.SendReq` - outgoing MMS PDU structure
+- `com.google.android.mms.pdu_alt.PduBody` - container for parts  
+- `com.google.android.mms.pdu_alt.PduPart` - individual text/image parts
+- `com.google.android.mms.pdu_alt.PduComposer` - serializes PDU to bytes
+- `com.google.android.mms.pdu_alt.EncodedStringValue` - for addresses
 
-- **PendingIntent mutability**
-	- `PendingIntent.FLAG_MUTABLE` is not needed here and is generally best avoided. You can keep the exact behavior and use immutable.
-- **Content observer noise**
-	- You register on `content://mms` with descendants; you then query only `content://mms/inbox`. That’s fine, but it can trigger on a lot of unrelated changes. Minimal improvement: register directly on `content://mms/inbox` if you only care about inbox.
-- **Memory / payload size risk for email**
-	- `EmailForwarder` base64-encodes full image bytes into JSON. That’s simple and minimal, but it can explode payload sizes and memory usage for large images. If you ever see OOMs or HTTP 413/502 issues, this is why.
-	- *Minimal mitigation without redesign:* cap attachment size (log + skip oversized) or reduce the image count.
+### Two Approaches
+
+**Option A: Use Klinker's Transaction class (easiest)**
+```kotlin
+val settings = Settings()
+settings.useSystemSending = true  // Uses SmsManager.sendMultimediaMessage()
+
+val transaction = Transaction(context, settings)
+val message = Message(text, recipientAddress)
+message.addImage(bitmap)  // or addMedia(uri, mimeType)
+transaction.sendNewMessage(message, threadId)
+```
+
+**Option B: Build PDU manually + SmsManager (more control)**
+1. Create `SendReq` with recipient (`EncodedStringValue`)
+2. Create `PduBody`, add `PduPart`s (text, images)
+3. Use `PduComposer` to serialize to `byte[]`
+4. Write bytes to a file, get `Uri` via `FileProvider`
+5. Call `SmsManager.sendMultimediaMessage(context, contentUri, ...)`
+
+### Required SendReq Fields (CRITICAL)
+`PduComposer.make()` returns null if required fields are missing! Must set:
+
+```kotlin
+val sendReq = SendReq()
+
+// Required headers
+sendReq.transactionId = "UniqueId${System.currentTimeMillis()}".toByteArray()
+sendReq.mmsVersion = PduHeaders.MMS_VERSION_1_2  // 0x12
+sendReq.date = System.currentTimeMillis() / 1000
+sendReq.from = EncodedStringValue("insert-address-token".toByteArray())  // Carrier replaces
+sendReq.addTo(EncodedStringValue(destinationNumber))
+sendReq.contentType = "application/vnd.wap.multipart.related".toByteArray()
+```
+
+### Required PduPart Fields
+Each part needs contentType, contentId, contentLocation, and data:
+
+```kotlin
+// Text part
+val textPart = PduPart()
+textPart.contentType = "text/plain; charset=utf-8".toByteArray()
+textPart.contentId = "<text>".toByteArray()
+textPart.contentLocation = "text.txt".toByteArray()
+textPart.charset = CharacterSets.UTF_8
+textPart.data = text.toByteArray(Charsets.UTF_8)
+
+// Image part
+val imagePart = PduPart()
+imagePart.contentType = "image/jpeg".toByteArray()
+imagePart.contentId = "<image0>".toByteArray()
+imagePart.contentLocation = "image0.jpg".toByteArray()
+imagePart.name = "image0.jpg".toByteArray()
+imagePart.data = compressedImageBytes
+```
+
+### Key Considerations
+- **Image compression**: MMS has carrier limits (~300KB-1MB typically). May need to resize/compress images.
+- **Carrier config**: `SmsManager.getCarrierConfigValues()` provides `MMS_CONFIG_MAX_MESSAGE_SIZE`
+- **Permissions**: Already have `SEND_SMS` - may need explicit MMS permission check
+- **Threading**: Sending should be async (coroutine)
+
+### Recommendation
+Start with **Option A** (Klinker's Transaction class with `useSystemSending = true`). It handles the complexity and uses the modern `SmsManager.sendMultimediaMessage()` API under the hood. Fall back to Option B only if we need finer control.

@@ -267,8 +267,9 @@ MMS with image (parsed from PDU)
 │   - Include in HTTP POST to Lambda       │
 │                                          │
 │ Phone target:                            │
-│   - SMS only (no MMS sending yet)        │
-│   - Append "[1 image not forwarded]"     │
+│   - Build MMS PDU with SendReq           │
+│   - Compress images to JPEG ≤100KB       │
+│   - Send via SmsManager.sendMms()        │
 └──────────────────────────────────────────┘
 ```
 
@@ -359,3 +360,48 @@ No configuration sharing required.
 | `SmashService.instance` | `@Volatile` |
 
 No shared mutable state crosses thread boundaries without synchronization.
+
+## AWS Infrastructure
+
+### Lambda Functions
+
+| File | Purpose |
+|------|------|
+| `smash-email-forwarder.mjs` | Receives JSON with base64 images, uploads to S3, sends email via SES with `<img>` tags |
+| `smash-log-receiver.mjs` | Remote log receiver (optional) |
+
+### S3 Bucket
+
+- Name: `smash-images-{AWS_ACCOUNT_ID}` (auto-derived via STS)
+- Public read access for image URLs in emails
+- 90-day lifecycle expiration
+- Provisioned via `provision-s3.js`
+
+## MMS Sending (PDU Composition)
+
+Sending MMS requires building a valid PDU. Required `SendReq` fields:
+
+```kotlin
+sendReq.transactionId = "UniqueId${timestamp}".toByteArray()
+sendReq.mmsVersion = PduHeaders.MMS_VERSION_1_2
+sendReq.date = System.currentTimeMillis() / 1000
+sendReq.from = EncodedStringValue("insert-address-token")  // carrier replaces
+sendReq.addTo(EncodedStringValue(destination))
+sendReq.contentType = "application/vnd.wap.multipart.related".toByteArray()
+```
+
+Each `PduPart` requires: `contentType`, `contentId`, `contentLocation`, `data`.
+
+PDU written to temp file, sent via `SmsManager.sendMultimediaMessage()`, callback cleans up.
+
+## Memory Management
+
+### processedIds (MmsObserver)
+
+`LinkedHashSet<Long>` capped at 100 entries with FIFO eviction. Prevents reprocessing same MMS while bounding memory.
+
+### PDU Temp Files
+
+Files in `cacheDir/mms_send/` cleaned up:
+- By `MmsSentReceiver` on send callback
+- By `MmsUtils.sendMms()` for files older than 1 hour (stale cleanup)

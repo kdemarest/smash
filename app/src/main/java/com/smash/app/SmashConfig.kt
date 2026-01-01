@@ -12,7 +12,8 @@ data class SmashConfig(
     val prefix: String = DEFAULT_PREFIX,
     val mailEndpointUrl: String? = null,
     val targets: List<String> = emptyList(),
-    val aliases: Map<String, String> = emptyMap()
+    val aliases: Map<String, String> = emptyMap(),
+    val verbose: Boolean = false
 ) {
     companion object {
         const val DEFAULT_PREFIX = "Cmd"

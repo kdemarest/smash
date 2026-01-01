@@ -25,7 +25,7 @@ class MessageProcessor(
             processingThread = thread(name = "MessageProcessor") {
                 processLoop()
             }
-            SmashLogger.info("MessageProcessor started")
+            SmashLogger.verbose("MessageProcessor started")
         }
     }
 
@@ -36,7 +36,7 @@ class MessageProcessor(
         if (isRunning.compareAndSet(true, false)) {
             processingThread?.interrupt()
             processingThread = null
-            SmashLogger.info("MessageProcessor stopped")
+            SmashLogger.verbose("MessageProcessor stopped")
         }
     }
 
