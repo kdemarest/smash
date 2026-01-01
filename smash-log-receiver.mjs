@@ -76,7 +76,8 @@ async function handlePostLogs(event) {
             sequenceToken: sequenceToken
         });
         
-        await cwl.send(putCommand);
+        const putResult = await cwl.send(putCommand);
+        console.log(`PutLogEvents result:`, JSON.stringify(putResult));
         
         console.log(`Logged ${lines.length} lines for device ${device}`);
         
@@ -129,13 +130,23 @@ async function getSequenceToken(logStreamName) {
 
 /**
  * Try to extract timestamp from log line format: "2024-12-31-10-30-45 [info] message"
+ * Returns current time if parsing fails or timestamp is too old (CloudWatch rejects old events).
  */
 function extractTimestamp(line) {
     // Match: YYYY-MM-DD-HH-MM-SS or YYYY-MM-DD HH:MM:SS
     const match = line.match(/^(\d{4})-(\d{2})-(\d{2})[-\s](\d{2})[-:](\d{2})[-:](\d{2})/);
     if (match) {
         const [, year, month, day, hour, min, sec] = match;
-        return new Date(year, month - 1, day, hour, min, sec).getTime();
+        // Use UTC to avoid timezone issues
+        const ts = Date.UTC(year, month - 1, day, hour, min, sec);
+        
+        // CloudWatch rejects events older than 14 days or more than 2 hours in future
+        const now = Date.now();
+        const maxAge = 14 * 24 * 60 * 60 * 1000; // 14 days
+        if (ts < now - maxAge || ts > now + 2 * 60 * 60 * 1000) {
+            return now; // Use current time if out of range
+        }
+        return ts;
     }
     return null;
 }

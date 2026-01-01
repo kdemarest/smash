@@ -58,7 +58,8 @@ const LAMBDAS = [
         sourceFile: 'smash-log-receiver.mjs',
         description: 'Log ingestion via CloudWatch (POST)',
         policies: ['arn:aws:iam::aws:policy/CloudWatchLogsFullAccess'],
-        envVars: {}
+        envVars: {},
+        setup: ensureLogGroup  // Custom setup function
     },
     {
         name: 'smash-log-viewer',
@@ -68,6 +69,20 @@ const LAMBDAS = [
         envVars: {}
     }
 ];
+
+const LOG_GROUP_NAME = '/smash/app-logs';
+
+// Ensure the CloudWatch log group exists for log receiver
+function ensureLogGroup() {
+    console.log(`  Ensuring CloudWatch log group: ${LOG_GROUP_NAME}`);
+    const existing = runJson(`aws logs describe-log-groups --log-group-name-prefix "${LOG_GROUP_NAME}" --query "logGroups[?logGroupName=='${LOG_GROUP_NAME}']"`);
+    if (!existing || existing.length === 0) {
+        console.log(`  Creating log group: ${LOG_GROUP_NAME}`);
+        run(`aws logs create-log-group --log-group-name "${LOG_GROUP_NAME}"`, { silent: true });
+    } else {
+        console.log(`  Log group exists: ${LOG_GROUP_NAME}`);
+    }
+}
 
 const ZIP_FILE = 'lambda-deploy.zip';
 const REGION = getRegion();
@@ -172,6 +187,9 @@ async function ensureLambda(lambda, roleArn) {
         run(`aws lambda update-function-code --function-name ${lambda.name} --zip-file fileb://${ZIP_FILE}`, { silent: true });
     }
     
+    // Wait for Lambda to be ready before updating config
+    await waitForLambdaReady(lambda.name);
+    
     // Set environment variables if any
     const envVars = lambda.envVars || {};
     const filteredEnvVars = Object.fromEntries(
@@ -187,6 +205,28 @@ async function ensureLambda(lambda, roleArn) {
     }
     
     if (fs.existsSync(ZIP_FILE)) fs.unlinkSync(ZIP_FILE);
+}
+
+/**
+ * Wait for Lambda function to be ready (not in pending state).
+ */
+async function waitForLambdaReady(functionName, maxAttempts = 10) {
+    for (let i = 0; i < maxAttempts; i++) {
+        const fn = runJson(`aws lambda get-function --function-name ${functionName}`);
+        const state = fn?.Configuration?.State;
+        const lastUpdateStatus = fn?.Configuration?.LastUpdateStatus;
+        
+        if (state === 'Active' && (!lastUpdateStatus || lastUpdateStatus === 'Successful')) {
+            return;
+        }
+        
+        if (i === 0) {
+            process.stdout.write('  Waiting for Lambda to be ready');
+        }
+        process.stdout.write('.');
+        await sleep(2000);
+    }
+    console.log(' (timeout, proceeding anyway)');
 }
 
 async function ensureApiGateway(lambda) {
@@ -233,6 +273,12 @@ async function deployLambda(lambda) {
     }
 
     const roleArn = await ensureRole(lambda);
+    
+    // Run custom setup if defined
+    if (lambda.setup) {
+        lambda.setup();
+    }
+    
     await ensureLambda(lambda, roleArn);
     const endpoint = await ensureApiGateway(lambda);
     

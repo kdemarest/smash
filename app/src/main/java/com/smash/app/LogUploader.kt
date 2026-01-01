@@ -1,6 +1,8 @@
 package com.smash.app
 
-import android.os.Build
+import android.annotation.SuppressLint
+import android.content.Context
+import android.telephony.TelephonyManager
 import kotlinx.coroutines.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -31,10 +33,37 @@ object LogUploader {
     private val uploadJob = AtomicBoolean(false)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
-    // Device identifier - use model name
-    private val deviceId: String by lazy {
-        val model = Build.MODEL.replace(" ", "-").lowercase()
-        "smash-$model"
+    // Device identifier - use phone number (cached after first call)
+    @Volatile
+    private var cachedDeviceId: String? = null
+    
+    /**
+     * Get device ID based on phone number.
+     * Format: smash-15129240203 (digits only, no +)
+     */
+    @SuppressLint("MissingPermission", "HardwareIds")
+    private fun getDeviceId(): String {
+        cachedDeviceId?.let { return it }
+        
+        try {
+            val context = SmashApplication.instance
+            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            val phoneNumber = tm.line1Number
+            if (!phoneNumber.isNullOrBlank()) {
+                // Strip everything except digits
+                val digitsOnly = phoneNumber.replace(Regex("[^0-9]"), "")
+                if (digitsOnly.isNotEmpty()) {
+                    cachedDeviceId = "smash-$digitsOnly"
+                    return cachedDeviceId!!
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LogUploader", "Could not get phone number: ${e.message}")
+        }
+        
+        // Fallback to model if phone number not available
+        cachedDeviceId = "smash-unknown"
+        return cachedDeviceId!!
     }
     
     /**
@@ -86,7 +115,7 @@ object LogUploader {
         
         try {
             val json = JSONObject().apply {
-                put("device", deviceId)
+                put("device", getDeviceId())
                 put("lines", JSONArray(lines))
             }
             

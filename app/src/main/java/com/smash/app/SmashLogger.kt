@@ -12,13 +12,15 @@ import kotlin.concurrent.withLock
  * Logging utility for smash.
  * Writes timestamped entries to smash.log in app-private storage.
  * 
- * Format: yyyy-MM-dd-HH-mm-ss [level] message
+ * Format: yyyy-MM-dd-HH-mm-ss [level] message (timestamps in UTC)
  */
 object SmashLogger {
 
     private const val LOG_FILENAME = "smash.log"
     private val lock = ReentrantLock()
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US)
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
     private val listeners = CopyOnWriteArrayList<OnLogChangedListener>()
 
     /**
