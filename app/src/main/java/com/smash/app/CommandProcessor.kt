@@ -32,7 +32,7 @@ class CommandProcessor(
         private const val CMD_ADD = "add"
         private const val CMD_REMOVE = "remove"
         private const val CMD_PREFIX = "prefix"
-        private const val CMD_SETMAIL = "setmail"
+        private const val CMD_ENDPOINT = "endpoint"
         private const val CMD_SEND = "send"
         private const val CMD_LOG = "log"
         private const val CMD_EMAILLOG = "emaillog"
@@ -40,6 +40,7 @@ class CommandProcessor(
         private const val CMD_ALIAS = "alias"
         private const val CMD_TESTMMS = "testmms"
         private const val CMD_VERBOSE = "verbose"
+        private const val CMD_BAN = "ban"
 
         // Reply messages
         const val REPLY_INVALID_COMMAND = "invalid command"
@@ -49,7 +50,7 @@ class CommandProcessor(
         const val REPLY_NOT_FOUND = "not found"
         const val REPLY_SENT = "sent"
         const val REPLY_FAILED = "failed"
-        const val REPLY_MAIL_ENDPOINT_SET = "mail endpoint set"
+        const val REPLY_ENDPOINT_SET = "endpoint set"
         const val REPLY_INVALID_URL = "invalid url"
         const val REPLY_PERSIST_FAILED = "persist failed"
     }
@@ -88,7 +89,7 @@ class CommandProcessor(
             CMD_ADD -> handleAdd(args)
             CMD_REMOVE -> handleRemove(args)
             CMD_PREFIX -> handlePrefix(args)
-            CMD_SETMAIL -> handleSetMail(args)
+            CMD_ENDPOINT -> handleEndpoint(args)
             CMD_SEND -> handleSend(args)
             CMD_LOG -> handleLog(args)
             CMD_EMAILLOG -> handleEmailLog(args)
@@ -96,6 +97,7 @@ class CommandProcessor(
             CMD_ALIAS -> handleAlias(args)
             CMD_TESTMMS -> handleTestMms(args)
             CMD_VERBOSE -> handleVerbose(args)
+            CMD_BAN -> handleBan(args)
             else -> {
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
@@ -108,12 +110,13 @@ class CommandProcessor(
     private fun handleHelp(): CommandResult {
         val help = listOf(
             "help",
-            "list [prefix/email/targets/aliases]",
+            "list [prefix/endpoints/targets/aliases/blocked]",
             "add <target>",
             "remove <target>",
             "alias <name> <number/remove>",
+            "ban [list] | ban <number> | ban remove <number>",
             "prefix <new>",
-            "setmail <url/disable>",
+            "endpoint email|log <url/disable>",
             "send <name_or_number> <text>",
             "log [n/trim]",
             "emaillog <address>",
@@ -126,7 +129,7 @@ class CommandProcessor(
 
     /**
      * LIST command - show config values.
-     * Usage: list [prefix | email | targets | aliases]
+     * Usage: list [prefix | endpoints | targets | aliases | blocked]
      */
     private fun handleList(args: String): CommandResult {
         val config = configManager.load()
@@ -136,9 +139,10 @@ class CommandProcessor(
             "prefix" -> {
                 CommandResult.Success("prefix=${config.prefix}")
             }
-            "email" -> {
-                val mailUrl = config.mailEndpointUrl ?: "(not configured)"
-                CommandResult.Success("mailEndpointUrl=$mailUrl")
+            "endpoints" -> {
+                val emailUrl = config.mailEndpointUrl ?: "(not set)"
+                val logUrl = config.logEndpointUrl ?: "(not set)"
+                CommandResult.Success("email=$emailUrl\nlog=$logUrl")
             }
             "targets" -> {
                 val text = if (config.targets.isEmpty()) {
@@ -156,11 +160,23 @@ class CommandProcessor(
                 }
                 CommandResult.Success(text)
             }
+            "blocked" -> {
+                // Show last 10 blocked numbers
+                val blocked = BlockedNumbersHelper.getBlockedNumbersRecent(context, 10)
+                val total = BlockedNumbersHelper.getBlockedCount(context)
+                val text = if (blocked.isEmpty()) {
+                    "(none)"
+                } else {
+                    val suffix = if (total > 10) "\n($total total)" else ""
+                    blocked.joinToString("\n") + suffix
+                }
+                CommandResult.Success(text)
+            }
             "" -> {
-                CommandResult.Success("list [prefix | email | targets | aliases]")
+                CommandResult.Success("list [prefix | endpoints | targets | aliases | blocked]")
             }
             else -> {
-                CommandResult.Error("list [prefix | email | targets | aliases]")
+                CommandResult.Error("list [prefix | endpoints | targets | aliases | blocked]")
             }
         }
     }
@@ -250,14 +266,20 @@ class CommandProcessor(
     }
 
     /**
-     * SETMAIL command - set or disable mail endpoint URL.
+     * ENDPOINT command - set or disable email/log endpoint URLs.
+     * Usage: endpoint email|log <url|disable>
      */
-    private fun handleSetMail(args: String): CommandResult {
-        val url = args.trim()
+    private fun handleEndpoint(args: String): CommandResult {
+        val parts = args.trim().split("\\s+".toRegex(), limit = 2)
+        val type = parts.getOrNull(0)?.lowercase() ?: ""
+        val url = parts.getOrNull(1)?.trim() ?: ""
         
-        if (url.isEmpty()) {
-            SmashLogger.warning("SETMAIL command with empty url")
-            return CommandResult.Error(REPLY_INVALID_COMMAND)
+        if (type.isEmpty() || url.isEmpty()) {
+            return CommandResult.Error("usage: endpoint email|log <url|disable>")
+        }
+        
+        if (type != "email" && type != "log") {
+            return CommandResult.Error("usage: endpoint email|log <url|disable>")
         }
 
         val newUrl: String? = if (url.equals("disable", ignoreCase = true)) {
@@ -266,20 +288,24 @@ class CommandProcessor(
                    url.startsWith("https://", ignoreCase = true)) {
             url
         } else {
-            SmashLogger.warning("SETMAIL command: invalid url '$url'")
+            SmashLogger.warning("ENDPOINT command: invalid url '$url'")
             return CommandResult.Error(REPLY_INVALID_URL)
         }
 
-        val (_, saved) = configManager.update { it.copy(mailEndpointUrl = newUrl) }
+        val (_, saved) = when (type) {
+            "email" -> configManager.update { it.copy(mailEndpointUrl = newUrl) }
+            "log" -> configManager.update { it.copy(logEndpointUrl = newUrl) }
+            else -> return CommandResult.Error(REPLY_INVALID_COMMAND)
+        }
         
         if (!saved) {
-            SmashLogger.error("SETMAIL command: failed to save config")
+            SmashLogger.error("ENDPOINT command: failed to save config")
             return CommandResult.Error(REPLY_PERSIST_FAILED)
         }
 
-        val logMessage = if (newUrl == null) "disabled" else "set to '$newUrl'"
-        SmashLogger.verbose("SETMAIL command: mail endpoint $logMessage")
-        return CommandResult.Success(REPLY_MAIL_ENDPOINT_SET)
+        val status = if (newUrl == null) "disabled" else "set"
+        SmashLogger.verbose("ENDPOINT command: $type endpoint $status")
+        return CommandResult.Success("$type endpoint $status")
     }
 
     /**
@@ -537,5 +563,73 @@ class CommandProcessor(
         }
     }
 
+    /**
+     * BAN command - ban/unban phone numbers from forwarding.
+     * Usage: ban <number> | ban remove <number> | ban list
+     */
+    private fun handleBan(args: String): CommandResult {
+        val parts = args.trim().split("\\s+".toRegex(), limit = 2)
+        val firstArg = parts.getOrNull(0)?.lowercase() ?: ""
+        
+        return when {
+            firstArg.isEmpty() || firstArg == "list" -> {
+                // List last 10 blocked numbers (most recent first)
+                val blocked = BlockedNumbersHelper.getBlockedNumbersRecent(context, 10)
+                val total = BlockedNumbersHelper.getBlockedCount(context)
+                val text = if (blocked.isEmpty()) {
+                    "(none blocked)"
+                } else {
+                    val header = if (total > 10) "showing last 10 of $total:\n" else ""
+                    header + blocked.joinToString("\n")
+                }
+                CommandResult.Success(text)
+            }
+            firstArg == "remove" -> {
+                // Unblock a number
+                val number = parts.getOrNull(1)?.trim() ?: ""
+                if (number.isEmpty()) {
+                    return CommandResult.Error("usage: ban remove <number>")
+                }
+                val result = BlockedNumbersHelper.unblockNumber(context, number)
+                when (result) {
+                    BlockedNumbersHelper.BlockResult.SUCCESS -> {
+                        SmashLogger.verbose("BAN command: unblocked '$number'")
+                        CommandResult.Success("unblocked")
+                    }
+                    BlockedNumbersHelper.BlockResult.NOT_FOUND -> {
+                        CommandResult.Success(REPLY_NOT_FOUND)
+                    }
+                    BlockedNumbersHelper.BlockResult.NO_ACCESS -> {
+                        CommandResult.Error("no access (not default SMS app?)")
+                    }
+                    BlockedNumbersHelper.BlockResult.ERROR,
+                    BlockedNumbersHelper.BlockResult.ALREADY_EXISTS -> {
+                        CommandResult.Error(REPLY_FAILED)
+                    }
+                }
+            }
+            else -> {
+                // Block a number
+                val number = firstArg
+                val result = BlockedNumbersHelper.blockNumber(context, number)
+                when (result) {
+                    BlockedNumbersHelper.BlockResult.SUCCESS -> {
+                        SmashLogger.verbose("BAN command: blocked '$number'")
+                        CommandResult.Success("blocked")
+                    }
+                    BlockedNumbersHelper.BlockResult.ALREADY_EXISTS -> {
+                        CommandResult.Success("already blocked")
+                    }
+                    BlockedNumbersHelper.BlockResult.NO_ACCESS -> {
+                        CommandResult.Error("no access (not default SMS app?)")
+                    }
+                    BlockedNumbersHelper.BlockResult.ERROR -> {
+                        CommandResult.Error(REPLY_FAILED)
+                    }
+                    else -> CommandResult.Error(REPLY_FAILED)
+                }
+            }
+        }
+    }
 }
 

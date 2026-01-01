@@ -1,6 +1,7 @@
 package com.smash.app
 
 import android.app.Application
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Application class for smash.
@@ -34,9 +35,36 @@ class SmashApplication : Application() {
         lateinit var instance: SmashApplication
             private set
 
+        // Queue for messages received before service is ready
+        private val pendingMessages = ConcurrentLinkedQueue<IncomingMessage>()
+
         /**
          * Get the ConfigManager singleton.
          */
         fun getConfigManager(): ConfigManager = instance.configManager
+
+        /**
+         * Add a message to the pending queue (when service isn't ready yet).
+         */
+        fun addPendingMessage(message: IncomingMessage) {
+            pendingMessages.add(message)
+            SmashLogger.verbose("SmashApplication: queued pending message from ${message.sender}")
+        }
+
+        /**
+         * Drain all pending messages and return them.
+         * Called by SmashService when it starts.
+         */
+        fun drainPendingMessages(): List<IncomingMessage> {
+            val messages = mutableListOf<IncomingMessage>()
+            while (true) {
+                val msg = pendingMessages.poll() ?: break
+                messages.add(msg)
+            }
+            if (messages.isNotEmpty()) {
+                SmashLogger.info("SmashApplication: drained ${messages.size} pending message(s)")
+            }
+            return messages
+        }
     }
 }

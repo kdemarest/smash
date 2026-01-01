@@ -41,7 +41,7 @@ class SmsReceiver : BroadcastReceiver() {
         // Create IncomingMessage for each complete message and enqueue
         for ((sender, bodyBuilder) in messagesBySender) {
             val body = bodyBuilder.toString()
-            SmashLogger.verbose("SMS received from $sender: ${body.take(50)}${if (body.length > 50) "..." else ""}\")
+            SmashLogger.verbose("SMS received from $sender: ${body.take(50)}${if (body.length > 50) "..." else ""}")
             
             val message = IncomingMessage(
                 sender = sender,
@@ -50,9 +50,17 @@ class SmsReceiver : BroadcastReceiver() {
                 attachments = emptyList()  // SMS has no attachments
             )
             
-            // Enqueue to shared processor
-            SmashService.getInstance()?.enqueueMessage(message)
-                ?: SmashLogger.error("SmsReceiver: SmashService not running, cannot process SMS")
+            // Enqueue to shared processor - start service if not running
+            val service = SmashService.getInstance()
+            if (service != null) {
+                service.enqueueMessage(message)
+            } else {
+                // Service not ready yet - start it and use pending queue
+                SmashLogger.warning("SmsReceiver: SmashService not ready, starting and queuing message")
+                SmashService.start(context)
+                // Store in application-level pending queue
+                SmashApplication.addPendingMessage(message)
+            }
         }
     }
 }

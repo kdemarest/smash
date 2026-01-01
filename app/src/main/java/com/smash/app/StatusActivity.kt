@@ -15,6 +15,7 @@ class StatusActivity : AppCompatActivity() {
 
     private lateinit var prefixValue: TextView
     private lateinit var mailEndpointValue: TextView
+    private lateinit var logEndpointValue: TextView
     private lateinit var targetsValue: TextView
     private lateinit var logValue: TextView
     private lateinit var logScrollView: ScrollView
@@ -37,6 +38,7 @@ class StatusActivity : AppCompatActivity() {
 
         prefixValue = findViewById(R.id.prefixValue)
         mailEndpointValue = findViewById(R.id.mailEndpointValue)
+        logEndpointValue = findViewById(R.id.logEndpointValue)
         targetsValue = findViewById(R.id.targetsValue)
         logValue = findViewById(R.id.logValue)
         logScrollView = findViewById(R.id.logScrollView)
@@ -74,6 +76,12 @@ class StatusActivity : AppCompatActivity() {
             "Not configured"
         } else {
             config.mailEndpointUrl
+        }
+
+        logEndpointValue.text = if (config.logEndpointUrl.isNullOrBlank()) {
+            "Not configured"
+        } else {
+            config.logEndpointUrl
         }
 
         targetsValue.text = if (config.targets.isEmpty()) {

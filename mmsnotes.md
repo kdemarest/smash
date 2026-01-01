@@ -90,3 +90,39 @@ imagePart.data = compressedImageBytes
 
 ### Recommendation
 Start with **Option A** (Klinker's Transaction class with `useSystemSending = true`). It handles the complexity and uses the modern `SmsManager.sendMultimediaMessage()` API under the hood. Fall back to Option B only if we need finer control.
+
+# Limitations to address
+
+MMS Limitations to Address
+Total message size limit (~300KB-1.5MB varies by carrier)
+
+Current: Each image compressed to 100KB, but no aggregate check
+Proposal: Log a warning if total PDU exceeds 300KB; optionally reduce image count or quality
+Max attachments per MMS (1-10 varies by carrier)
+
+Current: No limit enforced
+Proposal: Cap at 3 images, log warning if dropping extras
+Text length limit (~5000 chars)
+
+Current: No limit enforced
+Proposal: Truncate with "..." if over limit
+Unsupported image formats (HEIC/HEIF/WebP)
+
+Current: Passed through as-is, will fail
+Proposal: Convert to JPEG (Android's BitmapFactory already handles this during compression)
+Video attachments
+
+Current: Filtered out by imageAttachments getter
+Proposal: Already handled - no change needed
+Audio/vCard/other non-image attachments
+
+Current: Filtered out by imageAttachments getter
+Proposal: Already handled - no change needed
+GIF handling
+
+Current: Converted to static JPEG (loses animation)
+Proposal: Either keep as GIF (risky - may be too large) or accept the loss of animation
+PNG transparency
+
+Current: Converted to JPEG (black background for transparency)
+Proposal: Accept this or keep small PNGs as PNG

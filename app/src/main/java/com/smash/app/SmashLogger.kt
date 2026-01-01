@@ -109,17 +109,23 @@ object SmashLogger {
             Level.ERROR -> android.util.Log.e("SmashLogger", message)
         }
         
+        val entry: String
         lock.withLock {
             val file = logFile ?: return
             try {
                 val timestamp = dateFormat.format(Date())
-                val entry = "$timestamp ${level.tag} $message\n"
-                file.appendText(entry, Charsets.UTF_8)
+                entry = "$timestamp ${level.tag} $message"
+                file.appendText(entry + "\n", Charsets.UTF_8)
             } catch (e: Exception) {
                 // Can't log the logging failure - just ignore
                 android.util.Log.e("SmashLogger", "Failed to write log: ${e.message}")
+                return
             }
         }
+        
+        // Queue for remote upload (outside lock to avoid blocking)
+        LogUploader.queueLine(entry)
+        
         notifyListeners()
     }
 

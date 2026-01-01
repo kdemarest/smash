@@ -56,8 +56,15 @@ const LAMBDAS = [
     {
         name: 'smash-log-receiver',
         sourceFile: 'smash-log-receiver.mjs',
-        description: 'Log ingestion via CloudWatch',
+        description: 'Log ingestion via CloudWatch (POST)',
         policies: ['arn:aws:iam::aws:policy/CloudWatchLogsFullAccess'],
+        envVars: {}
+    },
+    {
+        name: 'smash-log-viewer',
+        sourceFile: 'smash-log-viewer.mjs',
+        description: 'Log viewing via CloudWatch (GET)',
+        policies: ['arn:aws:iam::aws:policy/CloudWatchLogsReadOnlyAccess'],
         envVars: {}
     }
 ];

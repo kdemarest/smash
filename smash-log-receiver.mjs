@@ -1,5 +1,7 @@
 // AWS Lambda function for smash log ingestion via CloudWatch
 // Deploy this to AWS Lambda and configure API Gateway to get a public URL
+// 
+// POST - Write logs: { "device": "name", "lines": ["..."] }
 
 import { CloudWatchLogsClient, PutLogEventsCommand, CreateLogStreamCommand, DescribeLogStreamsCommand } from "@aws-sdk/client-cloudwatch-logs";
 
@@ -9,6 +11,26 @@ const cwl = new CloudWatchLogsClient();
 const LOG_GROUP_NAME = "/smash/app-logs";
 
 export const handler = async (event) => {
+    // Only handle POST requests
+    const method = event.requestContext?.http?.method || event.httpMethod;
+    if (method === 'OPTIONS') {
+        return { statusCode: 200, headers: corsHeaders(), body: '' };
+    }
+    if (method !== 'POST') {
+        return {
+            statusCode: 405,
+            headers: corsHeaders(),
+            body: JSON.stringify({ error: "Method not allowed. Use POST." })
+        };
+    }
+    
+    return handlePostLogs(event);
+};
+
+/**
+ * Handle POST request - write logs to CloudWatch
+ */
+async function handlePostLogs(event) {
     try {
         // Parse the incoming request body
         const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
@@ -116,4 +138,16 @@ function extractTimestamp(line) {
         return new Date(year, month - 1, day, hour, min, sec).getTime();
     }
     return null;
+}
+
+/**
+ * CORS headers for browser access
+ */
+function corsHeaders() {
+    return {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Content-Type': 'application/json'
+    };
 }

@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 data class SmashConfig(
     val prefix: String = DEFAULT_PREFIX,
     val mailEndpointUrl: String? = null,
+    val logEndpointUrl: String? = null,
     val targets: List<String> = emptyList(),
     val aliases: Map<String, String> = emptyMap(),
     val verbose: Boolean = false
@@ -66,6 +67,13 @@ data class SmashConfig(
      */
     fun isMailEndpointEnabled(): Boolean {
         return !mailEndpointUrl.isNullOrBlank()
+    }
+
+    /**
+     * Check if log endpoint is configured and valid.
+     */
+    fun isLogEndpointEnabled(): Boolean {
+        return !logEndpointUrl.isNullOrBlank()
     }
 
     /**
@@ -142,4 +150,5 @@ data class SmashConfig(
             PhoneUtils.cleanPhone(v) == cleanedValue || v.equals(value, ignoreCase = true)
         }?.key
     }
+
 }

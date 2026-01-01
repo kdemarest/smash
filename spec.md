@@ -36,6 +36,7 @@ Fields:
 {
   "prefix": "<Cmd_or_another_value>",
   "mailEndpointUrl": "<http_url_or_null>",
+  "logEndpointUrl": "<http_url_or_null>",
   "targets": [ "<phone_or_email>", ... ],
   "aliases": { "<name>": "<number>", ... },
   "verbose": false
@@ -49,6 +50,10 @@ targets rules:
 
 mailEndpointUrl rules:
 - if null or an empty string, forwarding to email destinations is disabled
+
+logEndpointUrl rules:
+- if null or an empty string, remote log upload is disabled
+- used by AWS Lambda for centralized logging
 
 verbose rules:
 - defaults to false
@@ -166,21 +171,25 @@ If a reply is longer than 160 characters (notably for the "list" and "log" comma
 - rewrite smash.json
 - reply to origin: "removed" or "not found"
 
-(3) <prefix> list
-- reply to origin with:
-	- "mailEndpointUrl="+mailEndpointUrl
-	- "targets" then a newline, then each target on its own line
+(3) <prefix> list [prefix | endpoints | targets | aliases | blocked]
+- with no argument, shows usage hint
+- list prefix: shows current prefix
+- list endpoints: shows email and log endpoint URLs
+- list targets: shows all targets, one per line
+- list aliases: shows all aliases as name=number
+- list blocked: shows last 10 system-blocked numbers with total count
 
 (4) <prefix> send <number> <text>
 - send SMS with <text> to cleanPhone(<number>)
 - reply to origin: "sent" or "failed"
 - <text> may contain spaces
 
-(5) <prefix> setmail <url>
-- set mailEndpointUrl to <url> if url starts with "http"
-- if <url> is "disable" then the mailEndpointUrl is set blank
+(5) <prefix> endpoint email|log <url|disable>
+- set mailEndpointUrl or logEndpointUrl based on first argument
+- url must start with "http" or "https"
+- if second argument is "disable" then the endpoint is set to null
 - rewrite smash.json
-- reply to origin: "mail endpoint set" or "invalid url"
+- reply to origin: "email endpoint set", "log endpoint set", "email endpoint disabled", "log endpoint disabled", or "invalid url"
 
 (6) <prefix> log <value>
 - if value is omitted, it is set to 20
@@ -201,6 +210,33 @@ If a reply is longer than 160 characters (notably for the "list" and "log" comma
 - when on: detailed MMS/internal processing logs
 - stored in smash.json
 - reply to origin: "verbose on" or "verbose off"
+
+(10) <prefix> alias <name> <number|remove>
+- set an alias for a phone number, or remove it
+- alias names should not contain digits
+- alias values must be phone numbers (no email)
+- if only name is given, shows that alias
+- "alias <name> remove" removes the alias
+- rewrite smash.json
+- reply to origin: "alias <name> set", "removed", or "not found"
+
+(11) <prefix> ban [list] | ban <number> | ban remove <number>
+- manages system-level blocked numbers via Android's BlockedNumberContract
+- blocked numbers are shared with Google Messages, Phone app, etc.
+- requires being the default SMS app
+- "ban" or "ban list": shows last 10 blocked numbers with total count
+- "ban <number>": blocks the number at system level
+- "ban remove <number>": unblocks the number
+- reply to origin: "blocked", "already blocked", "unblocked", "not found", or error
+
+(12) <prefix> emaillog <address>
+- emails the last 200 log lines to the specified email address
+- requires mailEndpointUrl to be configured
+- reply to origin: "log emailed to <address>" or error
+
+(13) <prefix> help
+- lists all available commands with brief syntax
+- useful as a quick reference
 
 # Command Parsing Requirements
 

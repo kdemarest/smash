@@ -92,6 +92,12 @@ class SmashService : Service() {
         // Now update with actual status after checking
         updateNotification()
 
+        // Drain any messages that arrived before service was ready
+        val pendingMessages = SmashApplication.drainPendingMessages()
+        for (msg in pendingMessages) {
+            messageProcessor.enqueue(msg)
+        }
+
         return START_STICKY
     }
 
@@ -134,6 +140,12 @@ class SmashService : Service() {
             val result = commandProcessor.process(message.sender, body)
             SmsUtils.sendReply(this, message.sender, result.reply)
         } else {
+            // Check if sender is blocked
+            if (BlockedNumbersHelper.isBlocked(this, message.sender)) {
+                SmashLogger.verbose("ignored blocked sender: ${message.sender}")
+                return
+            }
+            
             // Log the incoming message
             val attachmentInfo = if (message.hasAttachments) {
                 " (${message.attachments.size} attachments)"

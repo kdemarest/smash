@@ -69,6 +69,28 @@ object MmsUtils {
     private const val FILE_PROVIDER_AUTHORITY = "com.smash.app.fileprovider"
 
     /**
+     * Filter attachments to only those with supported image MIME types.
+     * Skips video, audio, vCard, and other non-image types.
+     */
+    private fun filterValidAttachments(attachments: List<MediaAttachment>): List<MediaAttachment> {
+        return attachments.filter { attachment ->
+            val mimeType = attachment.mimeType.lowercase()
+            when {
+                SUPPORTED_MMS_IMAGE_TYPES.contains(mimeType) -> true
+                CONVERTIBLE_IMAGE_TYPES.contains(mimeType) -> true
+                mimeType.startsWith("image/") -> {
+                    SmashLogger.warning("MmsUtils: unsupported image type $mimeType, will attempt conversion")
+                    true
+                }
+                else -> {
+                    SmashLogger.warning("MmsUtils: skipping non-image attachment: $mimeType")
+                    false
+                }
+            }
+        }
+    }
+
+    /**
      * Send an MMS message with images to the specified phone number.
      * 
      * Applies MMS limitations:
