@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../kendemarest.com"
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "kendemarest.com"
+	}
+}

@@ -15,8 +15,9 @@ class SmashApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        startupTimeMillis = System.currentTimeMillis()
 
-        // Initialize logger
+        // Initialize logger (log to Android logcat only until configManager is ready)
         SmashLogger.init(this)
 
         // Initialize config manager and load config
@@ -26,6 +27,10 @@ class SmashApplication : Application() {
         // Set verbose mode from config
         SmashLogger.isVerbose = config.verbose
 
+        // Visual separator for easy restart identification in logs
+        // (must be after configManager init since LogUploader needs it)
+        SmashLogger.info("──────────────────────────────────────────────────")
+
         // Log startup (compact)
         val verboseFlag = if (config.verbose) " [verbose]" else ""
         SmashLogger.info("smash starting$verboseFlag, ${config.targets.size} targets")
@@ -33,6 +38,10 @@ class SmashApplication : Application() {
 
     companion object {
         lateinit var instance: SmashApplication
+            private set
+
+        // Track when the app started
+        var startupTimeMillis: Long = 0L
             private set
 
         // Queue for messages received before service is ready

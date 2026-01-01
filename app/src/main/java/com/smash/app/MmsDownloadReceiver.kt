@@ -5,8 +5,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.Telephony
 import android.telephony.SmsManager
+import android.telephony.SubscriptionManager
 import com.google.android.mms.pdu_alt.PduParser
+import com.google.android.mms.pdu_alt.PduPersister
 import com.google.android.mms.pdu_alt.RetrieveConf
 import java.io.File
 
@@ -103,6 +106,11 @@ class MmsDownloadReceiver : BroadcastReceiver() {
             return null
         }
         
+        // Persist the MMS to the system provider (content://mms/inbox)
+        // This is required for default SMS app compliance - otherwise messages
+        // won't appear in other apps or system backups.
+        persistMmsToProvider(context, pdu)
+        
         // Extract sender
         val fromAddress = pdu.from
         val sender = if (fromAddress != null) {
@@ -176,5 +184,48 @@ class MmsDownloadReceiver : BroadcastReceiver() {
             timestamp = System.currentTimeMillis(),
             attachments = attachments
         )
+    }
+    
+    /**
+     * Persist the downloaded MMS to the system MMS provider.
+     * This writes to content://mms/inbox with all parts and addresses.
+     * 
+     * PduPersister handles the complex multi-table structure:
+     * - mms table: message metadata
+     * - part table: text/media parts  
+     * - addr table: from/to addresses
+     */
+    private fun persistMmsToProvider(context: Context, pdu: RetrieveConf) {
+        try {
+            val persister = PduPersister.getPduPersister(context)
+            
+            // Get the default subscription ID for multi-SIM support
+            val subId = SubscriptionManager.getDefaultSmsSubscriptionId()
+            
+            val messageUri = persister.persist(
+                pdu,                                    // The parsed PDU
+                Telephony.Mms.Inbox.CONTENT_URI,       // Store in inbox
+                true,                                   // Create thread ID
+                true,                                   // Group MMS enabled
+                null,                                   // No pre-opened files
+                subId                                   // Subscription ID
+            )
+            
+            if (messageUri != null) {
+                SmashLogger.verbose("MmsDownloadReceiver: persisted MMS to provider: $messageUri")
+                
+                // Update the date to local time and mark as read=0
+                val values = android.content.ContentValues().apply {
+                    put(Telephony.Mms.DATE, System.currentTimeMillis() / 1000L)
+                    put(Telephony.Mms.READ, 0)
+                    put(Telephony.Mms.SEEN, 0)
+                }
+                context.contentResolver.update(messageUri, values, null, null)
+            } else {
+                SmashLogger.error("MmsDownloadReceiver: PduPersister.persist returned null")
+            }
+        } catch (e: Exception) {
+            SmashLogger.error("MmsDownloadReceiver: failed to persist MMS to provider", e)
+        }
     }
 }

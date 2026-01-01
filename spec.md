@@ -27,6 +27,15 @@ The app must:
 - maintain smash.json on internal storage
 - run as a foreground service to avoid termination
 - on run detect if not default SMS and request to be such
+- auto-start on device boot via BOOT_COMPLETED broadcast
+
+# Power Monitor
+
+Since smash runs on a dedicated phone that should always be plugged in, the app monitors power state:
+- When the phone is unplugged, it beeps immediately, then every 60 seconds
+- When plugged back in, beeping stops
+- Uses alarm-volume audio to ensure audibility
+- Helps alert caretakers to reconnect the charger
 
 # Data Storage: smash.json
 

@@ -93,6 +93,42 @@ Start with **Option A** (Klinker's Transaction class with `useSystemSending = tr
 
 # Limitations to address
 
+## Smash is a Repeater - Sent MMS Not Persisted (BY DESIGN)
+
+Smash is a **forwarder/repeater**, not a user-facing messaging app. This affects how we handle sent messages:
+
+**We intentionally do NOT persist sent MMS to `content://mms/sent`:**
+- The phone owner didn't compose these - they're automated forwards from email/commands
+- Persisting would confuse users who switch to another SMS app and see "sent" messages they never wrote
+- Smash maintains its own audit trail via AWS cloud logging
+- The "default SMS app contract" assumes user-initiated messages; Smash breaks this assumption by design
+
+**We DO persist received MMS to `content://mms/inbox`:**
+- Required for MessageSyncManager to catch missed messages
+- Ensures messages survive if Smash is uninstalled
+- Done in `MmsDownloadReceiver.persistMmsToProvider()`
+
+---
+
+## Message Reliability: MessageSyncManager (IMPLEMENTED)
+
+The `MessageSyncManager` provides a safety net for message reliability:
+
+**Problem:** As the default SMS app, Smash receives broadcasts for incoming messages. If the app is killed, crashes, or misses a broadcast, those messages could be lost.
+
+**Solution:** Periodic sync with the system SMS/MMS database:
+- Runs every 5 minutes by default
+- Tracks "watermarks" (highest seen SMS/MMS IDs) 
+- Only processes unread messages less than 24 hours old
+- Logs warnings when missed messages are recovered
+
+**Commands:**
+- `sync` - manually trigger a sync, reports found/processed counts
+- `sync status` - show current watermarks and last sync time
+- `sync reset` - reset watermarks to current (skip old messages)
+
+---
+
 MMS Limitations to Address
 Total message size limit (~300KB-1.5MB varies by carrier)
 

@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.text.Html
 import androidx.core.app.NotificationCompat
 
 /**
@@ -21,10 +22,15 @@ class SmashService : Service() {
     private lateinit var commandProcessor: CommandProcessor
     private lateinit var messageForwarder: MessageForwarder
     private lateinit var mmsObserver: MmsObserver
+    private lateinit var messageSyncManager: MessageSyncManager
+    private lateinit var powerMonitor: PowerMonitor
 
     companion object {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "smash_service"
+        const val EXTRA_TRIGGER = "trigger"
+        const val TRIGGER_BOOT = "boot"
+        const val TRIGGER_USER = "user"
 
         @Volatile
         private var instance: SmashService? = null
@@ -36,9 +42,12 @@ class SmashService : Service() {
 
         /**
          * Start the foreground service.
+         * @param trigger How the service was started: TRIGGER_BOOT or TRIGGER_USER
          */
-        fun start(context: Context) {
-            val intent = Intent(context, SmashService::class.java)
+        fun start(context: Context, trigger: String = TRIGGER_USER) {
+            val intent = Intent(context, SmashService::class.java).apply {
+                putExtra(EXTRA_TRIGGER, trigger)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -50,6 +59,8 @@ class SmashService : Service() {
          * Stop the foreground service.
          */
         fun stop(context: Context) {
+            SmashLogger.info("SmashService stop requested")
+            instance?.stopSelf()
             val intent = Intent(context, SmashService::class.java)
             context.stopService(intent)
         }
@@ -80,10 +91,42 @@ class SmashService : Service() {
             messageProcessor.enqueue(message)
         }
         mmsObserver.register()
+        
+        // Initialize message sync manager - catches missed messages
+        messageSyncManager = MessageSyncManager(this) { message ->
+            messageProcessor.enqueue(message)
+        }
+        messageSyncManager.start()
+
+        // Initialize power monitor - beeps when unplugged
+        powerMonitor = PowerMonitor(this) { isPluggedIn ->
+            updateNotification()
+            notifyTargetsOfPowerState(isPluggedIn)
+        }
+        powerMonitor.start()
+    }
+
+    /**
+     * Send SMS to all targets when power state changes.
+     */
+    private fun notifyTargetsOfPowerState(isPluggedIn: Boolean) {
+        val config = SmashApplication.getConfigManager().load()
+        val message = if (isPluggedIn) "Smash phone plugged back in" else "Smash phone unplugged"
+        
+        for (target in config.targets) {
+            // Only send to phone numbers, not email addresses
+            if (!target.contains('@')) {
+                val cleanedNumber = PhoneUtils.cleanPhone(target)
+                if (cleanedNumber.isNotEmpty()) {
+                    SmsUtils.sendSms(this, cleanedNumber, message)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        SmashLogger.verbose("SmashService onStartCommand")
+        val trigger = intent?.getStringExtra(EXTRA_TRIGGER) ?: "unknown"
+        SmashLogger.info("SmashService started (trigger: $trigger)")
         
         // Start foreground immediately with "checking" status to avoid ANR
         val initialNotification = createNotification(checking = true)
@@ -106,6 +149,8 @@ class SmashService : Service() {
         instance = null
         messageProcessor.stop()
         mmsObserver.unregister()
+        messageSyncManager.stop()
+        powerMonitor.stop()
         SmashLogger.verbose("SmashService onDestroy")
     }
 
@@ -116,6 +161,16 @@ class SmashService : Service() {
     fun triggerMmsCheck() {
         mmsObserver.checkNow()
     }
+
+    /**
+     * Get the message sync manager for status/manual sync.
+     */
+    fun getMessageSyncManager(): MessageSyncManager = messageSyncManager
+
+    /**
+     * Check if power is currently plugged in.
+     */
+    fun isPowerPluggedIn(): Boolean = if (::powerMonitor.isInitialized) powerMonitor.isPluggedIn else true
 
     /**
      * Enqueue a message for processing.
@@ -135,7 +190,7 @@ class SmashService : Service() {
         val prefix = config.prefix
         val body = message.body.trim()
 
-        // Check if this is a command (commands don't have attachments typically)
+        // Check if this is a command
         if (CommandParser.isCommand(body, prefix)) {
             val result = commandProcessor.process(message.sender, body)
             SmsUtils.sendReply(this, message.sender, result.reply)
@@ -214,15 +269,28 @@ class SmashService : Service() {
             }
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .build()
+
+        // Add red "Plug me in!" if unplugged
+        if (!checking && ::powerMonitor.isInitialized && !powerMonitor.isPluggedIn) {
+            // Show warning in both collapsed and expanded views
+            builder.setContentText("⚠️ PLUG ME IN!")
+            val styledText = Html.fromHtml(
+                "$contentText<br><font color='#FF0000'><b>⚠️ PLUG ME IN!</b></font>",
+                Html.FROM_HTML_MODE_COMPACT
+            )
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(styledText))
+        } else {
+            builder.setContentText(contentText)
+        }
+
+        return builder.build()
     }
 
     /**

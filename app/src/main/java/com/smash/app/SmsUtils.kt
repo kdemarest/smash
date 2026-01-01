@@ -7,6 +7,10 @@ import android.os.Build
 /**
  * Utility for sending SMS messages.
  * Handles message splitting for long messages (>160 chars).
+ * 
+ * Note: Smash is a repeater/forwarder, NOT a user messaging app.
+ * We intentionally do NOT persist sent SMS to content://sms/sent.
+ * These are automated forwards, not user-composed messages.
  */
 object SmsUtils {
 
@@ -56,6 +60,7 @@ object SmsUtils {
                     null  // delivery intents
                 )
             }
+            
             true
         } catch (e: SecurityException) {
             SmashLogger.error("FORWARD FAILED to $cleanedNumber: SMS permission denied - ${e.message}")

@@ -41,6 +41,7 @@ class CommandProcessor(
         private const val CMD_TESTMMS = "testmms"
         private const val CMD_VERBOSE = "verbose"
         private const val CMD_BAN = "ban"
+        private const val CMD_SYNC = "sync"
 
         // Reply messages
         const val REPLY_INVALID_COMMAND = "invalid command"
@@ -98,6 +99,7 @@ class CommandProcessor(
             CMD_TESTMMS -> handleTestMms(args)
             CMD_VERBOSE -> handleVerbose(args)
             CMD_BAN -> handleBan(args)
+            CMD_SYNC -> handleSync(args)
             else -> {
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
@@ -121,6 +123,7 @@ class CommandProcessor(
             "log [n/trim]",
             "emaillog <address>",
             "verbose 0|1",
+            "sync [status/reset]",
             "testmms <number>"
         ).joinToString("\n")
         
@@ -628,6 +631,42 @@ class CommandProcessor(
                     }
                     else -> CommandResult.Error(REPLY_FAILED)
                 }
+            }
+        }
+    }
+
+    /**
+     * SYNC command - check for missed messages.
+     * Usage: sync [status | reset]
+     */
+    private fun handleSync(args: String): CommandResult {
+        val service = SmashService.getInstance()
+        if (service == null) {
+            return CommandResult.Error("service not running")
+        }
+        
+        val syncManager = service.getMessageSyncManager()
+        val subCommand = args.trim().lowercase()
+        
+        return when (subCommand) {
+            "status" -> {
+                CommandResult.Success(syncManager.getStatus())
+            }
+            "reset" -> {
+                syncManager.resetWatermarks()
+                CommandResult.Success("watermarks reset")
+            }
+            "" -> {
+                // Perform a sync now
+                val result = syncManager.syncNow()
+                if (result.hadMissedMessages) {
+                    CommandResult.Success("found ${result.totalProcessed} missed (${result.smsProcessed} SMS, ${result.mmsProcessed} MMS)")
+                } else {
+                    CommandResult.Success("no missed messages (checked ${result.totalFound} since last sync)")
+                }
+            }
+            else -> {
+                CommandResult.Error("usage: sync [status | reset]")
             }
         }
     }

@@ -4,6 +4,8 @@
 
 smash is a foreground service that intercepts SMS and MMS messages, processes commands, and forwards messages to configured targets (phone numbers and email addresses).
 
+**Smash is a repeater/forwarder, NOT a user-facing messaging app.** This distinction affects architectural decisions around message persistence (see "Message Persistence Philosophy" below).
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        SmashService                                  │
@@ -85,9 +87,11 @@ SMS arrives (carrier)
        │
        ▼
 ┌──────────────────────────────────────────┐
-│ Android System                           │
+│ Android Telephony Stack (RIL)            │
+│                                          │
 │ Broadcasts SMS_DELIVER_ACTION            │
 │ Intent contains: PDU with sender + body  │
+│ (only delivered to default SMS app)      │
 └────────────────────┬─────────────────────┘
                      │
                      ▼
@@ -98,20 +102,48 @@ SMS arrives (carrier)
 │ // Data is RIGHT HERE - no guessing      │
 │                                          │
 │ For each message:                        │
-│   sender = message.originatingAddress    │
-│   body = message.messageBody             │
-│   └──► SmashService.processSms()         │
+│   1. Write to system SMS provider        │
+│      (content://sms/inbox)               │
+│   2. Create IncomingMessage              │
+│   3. Enqueue to MessageProcessor         │
 └──────────────────────────────────────────┘
-                     │
-                     ▼
-┌──────────────────────────────────────────┐
-│ SmsProcessor                             │
-│                                          │
-│ - LinkedBlockingQueue for sequential     │
-│   processing                             │
-│ - Background thread consumes queue       │
-│ - Ensures messages processed in order    │
-└──────────────────────────────────────────┘
+```
+
+### Default SMS App Responsibility
+
+As the default SMS app, Smash **must** write received messages to the system
+SMS provider (`Telephony.Sms.Inbox.CONTENT_URI`). This is the implicit contract:
+
+- Only the default SMS app can write to the provider
+- Without this, messages won't appear in other apps (e.g., Google Messages)
+- System backups won't include the messages
+- MessageSyncManager relies on querying this provider
+
+### Message Persistence Philosophy (Repeater vs User App)
+
+Smash is a **repeater**, not a user messaging app. This affects persistence:
+
+| Message Type | Persisted? | Why |
+|--------------|------------|-----|
+| **Received SMS** | ✅ Yes, to `content://sms/inbox` | Required for MessageSyncManager, backups, other apps |
+| **Received MMS** | ✅ Yes, to `content://mms/inbox` | Same reasons |
+| **Sent SMS** | ❌ No | User didn't compose these - they're automated forwards |
+| **Sent MMS** | ❌ No | Same - would clutter sent folder with traffic user never initiated |
+
+The "default SMS app contract" assumes user-initiated messages. Smash intentionally
+breaks this assumption. Sent messages are logged to AWS for audit purposes instead.
+
+```kotlin
+val values = ContentValues().apply {
+    put(Telephony.Sms.ADDRESS, sender)
+    put(Telephony.Sms.BODY, body)
+    put(Telephony.Sms.DATE, dateReceived)
+    put(Telephony.Sms.DATE_SENT, dateSent)
+    put(Telephony.Sms.READ, 0)
+    put(Telephony.Sms.SEEN, 0)
+    put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
+}
+contentResolver.insert(Telephony.Sms.Inbox.CONTENT_URI, values)
 ```
 
 ### Why SMS is Reliable
@@ -172,11 +204,13 @@ MMS notification arrives
 │ 1. Read raw PDU bytes from temp file     │
 │ 2. Parse using PduParser (mms-pdu lib)   │
 │ 3. Cast to RetrieveConf                  │
-│ 4. Extract sender from getFrom()         │
-│ 5. Extract body from text/plain parts    │
-│ 6. Extract images from image/* parts     │
-│ 7. Create IncomingMessage                │
-│ 8. SmashService.enqueueMessage()         │
+│ 4. Persist to content://mms/inbox        │
+│    (PduPersister - required for sync)    │
+│ 5. Extract sender from getFrom()         │
+│ 6. Extract body from text/plain parts    │
+│ 7. Extract images from image/* parts     │
+│ 8. Create IncomingMessage                │
+│ 9. SmashService.enqueueMessage()         │
 └──────────────────────────────────────────┘
 ```
 
@@ -393,6 +427,10 @@ sendReq.contentType = "application/vnd.wap.multipart.related".toByteArray()
 Each `PduPart` requires: `contentType`, `contentId`, `contentLocation`, `data`.
 
 PDU written to temp file, sent via `SmsManager.sendMultimediaMessage()`, callback cleans up.
+
+**Note:** Sent MMS is intentionally NOT persisted to `content://mms/sent`. Smash is a
+repeater - these are automated forwards, not user-composed messages. See "Message
+Persistence Philosophy" above.
 
 ## Memory Management
 
