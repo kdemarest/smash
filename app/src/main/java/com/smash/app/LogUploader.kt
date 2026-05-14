@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.smash.app
 
 import android.annotation.SuppressLint

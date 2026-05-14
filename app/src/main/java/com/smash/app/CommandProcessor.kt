@@ -42,6 +42,9 @@ class CommandProcessor(
         private const val CMD_VERBOSE = "verbose"
         private const val CMD_BAN = "ban"
         private const val CMD_SYNC = "sync"
+        private const val CMD_FLAG = "flag"
+        private const val CMD_REPLY = "reply"
+        private const val CMD_FILTER = "filter"
 
         // Reply messages
         const val REPLY_INVALID_COMMAND = "invalid command"
@@ -100,6 +103,9 @@ class CommandProcessor(
             CMD_VERBOSE -> handleVerbose(args)
             CMD_BAN -> handleBan(args)
             CMD_SYNC -> handleSync(args)
+            CMD_FLAG -> handleFlag(args)
+            CMD_REPLY -> handleReply(args)
+            CMD_FILTER -> handleFilter(args)
             else -> {
                 CommandResult.Error(REPLY_INVALID_COMMAND)
             }
@@ -112,18 +118,21 @@ class CommandProcessor(
     private fun handleHelp(): CommandResult {
         val help = listOf(
             "help",
-            "list [prefix/endpoints/targets/aliases/blocked]",
+            "list [prefix/endpoints/targets/aliases/filters/flags/bans]",
             "add <target>",
             "remove <target>",
             "alias <name> <number/remove>",
-            "ban [list] | ban <number> | ban remove <number>",
+            "ban <number>|last | ban remove <number>",
             "prefix <new>",
             "endpoint email|log <url/disable>",
             "send <name_or_number> <text>",
+            "reply <text>",
             "log [n/trim]",
             "emaillog <address>",
             "verbose 0|1",
             "sync [status/reset]",
+            "flag add|remove <target> <flagName>",
+            "filter add|remove <text>",
             "testmms <number>"
         ).joinToString("\n")
         
@@ -151,7 +160,12 @@ class CommandProcessor(
                 val text = if (config.targets.isEmpty()) {
                     "(none)"
                 } else {
-                    config.targets.joinToString("\n")
+                    config.targets.joinToString("\n") { target ->
+                        val flags = config.targetFlags
+                            .filter { it.target.equals(target, ignoreCase = true) }
+                            .map { it.flag }
+                        if (flags.isEmpty()) target else "$target (${flags.joinToString(", ")})"
+                    }
                 }
                 CommandResult.Success(text)
             }
@@ -163,8 +177,24 @@ class CommandProcessor(
                 }
                 CommandResult.Success(text)
             }
-            "blocked" -> {
-                // Show last 10 blocked numbers
+            "filters" -> {
+                val text = if (config.filters.isEmpty()) {
+                    "(none)"
+                } else {
+                    config.filters.joinToString("\n")
+                }
+                CommandResult.Success(text)
+            }
+            "flags" -> {
+                val header = "Valid flags: ${SmashConfig.validFlagsString()}"
+                val assignments = if (config.targetFlags.isEmpty()) {
+                    "(none assigned)"
+                } else {
+                    config.targetFlags.joinToString("\n") { "${it.target}: ${it.flag}" }
+                }
+                CommandResult.Success("$header\n$assignments")
+            }
+            "bans" -> {
                 val blocked = BlockedNumbersHelper.getBlockedNumbersRecent(context, 10)
                 val total = BlockedNumbersHelper.getBlockedCount(context)
                 val text = if (blocked.isEmpty()) {
@@ -176,10 +206,10 @@ class CommandProcessor(
                 CommandResult.Success(text)
             }
             "" -> {
-                CommandResult.Success("list [prefix | endpoints | targets | aliases | blocked]")
+                CommandResult.Success("list [prefix | endpoints | targets | aliases | filters | flags | bans]")
             }
             else -> {
-                CommandResult.Error("list [prefix | endpoints | targets | aliases | blocked]")
+                CommandResult.Error("list [prefix | endpoints | targets | aliases | filters | flags | bans]")
             }
         }
     }
@@ -208,6 +238,7 @@ class CommandProcessor(
         }
 
         SmashLogger.verbose("ADD command: added '$target'")
+        SmashService.getInstance()?.ensureWarningsTarget()
         val totalCount = newConfig.targets.size
         return CommandResult.Success("added $target ($totalCount entries total)")
     }
@@ -568,24 +599,29 @@ class CommandProcessor(
 
     /**
      * BAN command - ban/unban phone numbers from forwarding.
-     * Usage: ban <number> | ban remove <number> | ban list
+     * Usage: ban <number> | ban remove <number>
      */
     private fun handleBan(args: String): CommandResult {
         val parts = args.trim().split("\\s+".toRegex(), limit = 2)
         val firstArg = parts.getOrNull(0)?.lowercase() ?: ""
-        
+
         return when {
-            firstArg.isEmpty() || firstArg == "list" -> {
-                // List last 10 blocked numbers (most recent first)
-                val blocked = BlockedNumbersHelper.getBlockedNumbersRecent(context, 10)
-                val total = BlockedNumbersHelper.getBlockedCount(context)
-                val text = if (blocked.isEmpty()) {
-                    "(none blocked)"
-                } else {
-                    val header = if (total > 10) "showing last 10 of $total:\n" else ""
-                    header + blocked.joinToString("\n")
+            firstArg.isEmpty() -> {
+                CommandResult.Error("usage: ban <number>|last | ban remove <number>")
+            }
+            firstArg == "last" -> {
+                val replyNum = SmashService.getInstance()?.getReplyPhoneNum()
+                    ?: return CommandResult.Error("no reply number set")
+                val result = BlockedNumbersHelper.blockNumber(context, replyNum)
+                when (result) {
+                    BlockedNumbersHelper.BlockResult.SUCCESS -> {
+                        SmashLogger.verbose("BAN command: blocked last sender '$replyNum'")
+                        CommandResult.Success("blocked $replyNum")
+                    }
+                    BlockedNumbersHelper.BlockResult.ALREADY_EXISTS -> CommandResult.Success("$replyNum already blocked")
+                    BlockedNumbersHelper.BlockResult.NO_ACCESS -> CommandResult.Error("no access (not default SMS app?)")
+                    else -> CommandResult.Error(REPLY_FAILED)
                 }
-                CommandResult.Success(text)
             }
             firstArg == "remove" -> {
                 // Unblock a number
@@ -632,6 +668,110 @@ class CommandProcessor(
                     else -> CommandResult.Error(REPLY_FAILED)
                 }
             }
+        }
+    }
+
+    /**
+     * FILTER command - manage message body filters.
+     * Usage: filter add <text> | filter remove <text>
+     */
+    private fun handleFilter(args: String): CommandResult {
+        val parts = args.trim().split(Regex("\\s+"), limit = 2)
+        val subCommand = parts.getOrNull(0)?.lowercase() ?: ""
+        val text = parts.getOrNull(1) ?: ""
+
+        return when (subCommand) {
+            "add" -> {
+                if (text.isEmpty()) return CommandResult.Error("usage: filter add <text>")
+                val (newConfig, wasAdded) = configManager.load().addFilter(text)
+                if (!wasAdded) return CommandResult.Success("filter already exists")
+                if (!configManager.save(newConfig)) return CommandResult.Error(REPLY_PERSIST_FAILED)
+                SmashLogger.verbose("FILTER command: added '$text'")
+                CommandResult.Success("filter added")
+            }
+            "remove" -> {
+                if (text.isEmpty()) return CommandResult.Error("usage: filter remove <text>")
+                val (newConfig, wasRemoved) = configManager.load().removeFilter(text)
+                if (!wasRemoved) return CommandResult.Success(REPLY_NOT_FOUND)
+                if (!configManager.save(newConfig)) return CommandResult.Error(REPLY_PERSIST_FAILED)
+                SmashLogger.verbose("FILTER command: removed '$text'")
+                CommandResult.Success(REPLY_REMOVED)
+            }
+            else -> CommandResult.Error("usage: filter add|remove <text>")
+        }
+    }
+
+    /**
+     * REPLY command - send SMS to the last non-target, non-command sender.
+     * Usage: reply <text>
+     */
+    private fun handleReply(args: String): CommandResult {
+        val text = args.trim()
+        if (text.isEmpty()) {
+            return CommandResult.Error("usage: reply <text>")
+        }
+
+        val replyNum = SmashService.getInstance()?.getReplyPhoneNum()
+            ?: return CommandResult.Error("no reply number set")
+
+        val cleanedNumber = PhoneUtils.cleanPhone(replyNum)
+        if (cleanedNumber.isEmpty()) {
+            return CommandResult.Error(REPLY_FAILED)
+        }
+
+        val success = SmsUtils.sendSms(context, cleanedNumber, text)
+        return if (success) {
+            SmashLogger.verbose("REPLY command: sent to $cleanedNumber")
+            CommandResult.Success("sent to $cleanedNumber")
+        } else {
+            SmashLogger.error("REPLY command: failed to send to $cleanedNumber")
+            CommandResult.Error(REPLY_FAILED)
+        }
+    }
+
+    /**
+     * FLAG command - manage per-target flags.
+     * Usage:
+     *   flag add <target> <flagName>
+     *   flag remove <target> <flagName>
+     *   flag list [target]
+     */
+    private fun handleFlag(args: String): CommandResult {
+        val parts = args.trim().split(Regex("\\s+"), limit = 3)
+        val subCommand = parts.getOrNull(0)?.lowercase() ?: ""
+
+        return when (subCommand) {
+            "add" -> {
+                val target = parts.getOrNull(1) ?: ""
+                val flag = parts.getOrNull(2) ?: ""
+                if (target.isEmpty() || flag.isEmpty()) {
+                    return CommandResult.Error("usage: flag add <target> <flagName>")
+                }
+                if (!SmashConfig.isValidFlag(flag)) {
+                    return CommandResult.Error("unknown flag '$flag'. Valid flags: ${SmashConfig.validFlagsString()}")
+                }
+                val (newConfig, wasAdded) = configManager.load().addFlag(target, flag)
+                if (!wasAdded) return CommandResult.Success("$flag already set on $target")
+                if (!configManager.save(newConfig)) return CommandResult.Error(REPLY_PERSIST_FAILED)
+                SmashLogger.verbose("FLAG command: added $flag to $target")
+                CommandResult.Success("$flag added to $target")
+            }
+            "remove" -> {
+                val target = parts.getOrNull(1) ?: ""
+                val flag = parts.getOrNull(2) ?: ""
+                if (target.isEmpty() || flag.isEmpty()) {
+                    return CommandResult.Error("usage: flag remove <target> <flagName>")
+                }
+                if (!SmashConfig.isValidFlag(flag)) {
+                    return CommandResult.Error("unknown flag '$flag'. Valid flags: ${SmashConfig.validFlagsString()}")
+                }
+                val (newConfig, wasRemoved) = configManager.load().removeFlag(target, flag)
+                if (!wasRemoved) return CommandResult.Success("$flag not found on $target")
+                if (!configManager.save(newConfig)) return CommandResult.Error(REPLY_PERSIST_FAILED)
+                SmashLogger.verbose("FLAG command: removed $flag from $target")
+                CommandResult.Success("$flag removed from $target")
+            }
+            else -> CommandResult.Error("usage: flag add|remove <target> <flagName>")
         }
     }
 

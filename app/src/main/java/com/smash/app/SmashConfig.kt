@@ -5,6 +5,15 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
+ * Associates a flag with a specific target address.
+ */
+@Serializable
+data class TargetFlag(
+    val target: String,
+    val flag: String
+)
+
+/**
  * Data model for smash.json configuration file.
  */
 @Serializable
@@ -14,11 +23,17 @@ data class SmashConfig(
     val logEndpointUrl: String? = null,
     val targets: List<String> = emptyList(),
     val aliases: Map<String, String> = emptyMap(),
-    val verbose: Boolean = false
+    val verbose: Boolean = false,
+    val targetFlags: List<TargetFlag> = emptyList(),
+    val filters: List<String> = emptyList()
 ) {
     companion object {
         const val DEFAULT_PREFIX = "Cmd"
         const val CONFIG_FILENAME = "smash.json"
+
+        val VALID_FLAGS = listOf("getWarnings")
+        fun isValidFlag(flag: String) = VALID_FLAGS.any { it.equals(flag, ignoreCase = true) }
+        fun validFlagsString() = VALID_FLAGS.joinToString(", ")
 
         private val json = Json {
             prettyPrint = true
@@ -137,6 +152,61 @@ data class SmashConfig(
         val trimmedName = nameOrValue.trim()
         val entry = aliases.entries.firstOrNull { (k, _) -> k.equals(trimmedName, ignoreCase = true) }
         return entry?.value ?: nameOrValue
+    }
+
+    /**
+     * Check if a message body matches any filter (case-insensitive substring match).
+     */
+    fun isFiltered(body: String): Boolean =
+        filters.any { body.contains(it, ignoreCase = true) }
+
+    /**
+     * Add a filter. Returns (newConfig, wasAdded) — false if already present.
+     */
+    fun addFilter(text: String): Pair<SmashConfig, Boolean> {
+        val trimmed = text.trim()
+        if (filters.any { it.equals(trimmed, ignoreCase = true) }) return this to false
+        return copy(filters = filters + trimmed) to true
+    }
+
+    /**
+     * Remove a filter. Returns (newConfig, wasRemoved).
+     */
+    fun removeFilter(text: String): Pair<SmashConfig, Boolean> {
+        val trimmed = text.trim()
+        val updated = filters.filterNot { it.equals(trimmed, ignoreCase = true) }
+        return copy(filters = updated) to (updated.size < filters.size)
+    }
+
+    /**
+     * Check if a specific target has a given flag.
+     */
+    fun hasFlag(target: String, flag: String): Boolean =
+        targetFlags.any { it.target.equals(target, ignoreCase = true) && it.flag.equals(flag, ignoreCase = true) }
+
+    /**
+     * Return all targets that have the given flag.
+     */
+    fun targetsWithFlag(flag: String): List<String> =
+        targetFlags.filter { it.flag.equals(flag, ignoreCase = true) }.map { it.target }
+
+    /**
+     * Add a flag to a target. Returns (newConfig, wasAdded) — false if already present.
+     */
+    fun addFlag(target: String, flag: String): Pair<SmashConfig, Boolean> {
+        if (hasFlag(target, flag)) return this to false
+        return copy(targetFlags = targetFlags + TargetFlag(target, flag)) to true
+    }
+
+    /**
+     * Remove a flag from a target. Returns (newConfig, wasRemoved).
+     */
+    fun removeFlag(target: String, flag: String): Pair<SmashConfig, Boolean> {
+        val before = targetFlags.size
+        val updated = targetFlags.filterNot {
+            it.target.equals(target, ignoreCase = true) && it.flag.equals(flag, ignoreCase = true)
+        }
+        return copy(targetFlags = updated) to (updated.size < before)
     }
 
     /**

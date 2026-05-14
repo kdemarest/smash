@@ -6,7 +6,6 @@ Android SMS forwarding app.
 
 ```bash
 build.cmd            # Windows
-./gradlew assembleDebug   # Cross-platform
 ```
 
 ## Build (VS Code)
@@ -22,10 +21,20 @@ build.cmd            # Windows
 
 ## Install
 
+Don't forget to build.cmd first!
+
 ```bash
-install.cmd          # Windows
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+install.cmd
 ```
+
+## Configure Phone
+
+- Settings → Apps → smash → Battery → **Unrestricted**
+- Settings → Battery → Background Usage Limits → Put unused apps to sleep → **Off**
+- Settings → Apps → smash → Permissions → Manage App if unused → **Off**
+- Settings → search for "alerts" → disallow all alerts, eg amber alerts
+
+After any Samsung OTA update, recheck: battery (Unrestricted), permissions, and default SMS app.
 
 ## Project Structure
 
@@ -49,6 +58,7 @@ app/src/main/
 │   └── mipmap-*/            - Launcher icons
 └── AndroidManifest.xml      - App manifest with permissions
 ```
+
 
 ## See Also
 

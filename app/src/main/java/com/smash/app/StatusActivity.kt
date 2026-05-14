@@ -19,6 +19,7 @@ class StatusActivity : AppCompatActivity() {
 
     private lateinit var uptimeValue: TextView
     private lateinit var powerWarning: TextView
+    private lateinit var signalWarning: TextView
     private lateinit var prefixValue: TextView
     private lateinit var mailEndpointValue: TextView
     private lateinit var logEndpointValue: TextView
@@ -58,6 +59,7 @@ class StatusActivity : AppCompatActivity() {
 
         uptimeValue = findViewById(R.id.uptimeValue)
         powerWarning = findViewById(R.id.powerWarning)
+        signalWarning = findViewById(R.id.signalWarning)
         prefixValue = findViewById(R.id.prefixValue)
         mailEndpointValue = findViewById(R.id.mailEndpointValue)
         logEndpointValue = findViewById(R.id.logEndpointValue)
@@ -126,13 +128,20 @@ class StatusActivity : AppCompatActivity() {
         targetsValue.text = if (config.targets.isEmpty()) {
             "None configured"
         } else {
-            config.targets.joinToString("\n")
+            config.targets.joinToString("\n") { target ->
+                val flags = config.targetFlags
+                    .filter { it.target.equals(target, ignoreCase = true) }
+                    .map { it.flag }
+                if (flags.isEmpty()) target else "$target (${flags.joinToString(", ")})"
+            }
         }
 
+        val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+        val baseTitle = "${getString(R.string.status_title)} v$versionName"
         title = if (PhoneUtils.isDefaultSmsApp(this)) {
-            getString(R.string.status_title)
+            baseTitle
         } else {
-            "${getString(R.string.status_title)} (NOT DEFAULT SMS APP)"
+            "$baseTitle (NOT DEFAULT SMS APP)"
         }
     }
 
@@ -158,11 +167,25 @@ class StatusActivity : AppCompatActivity() {
         
         uptimeValue.text = "Uptime: ${days}d ${hours}h ${minutes}m"
         
-        // Check power state from service
-        val isUnplugged = SmashService.getInstance()?.let { service ->
-            !service.isPowerPluggedIn()
-        } ?: false
+        // Use AlertManager for warning display
+        val activeAlerts = AlertManager.getActiveAlerts()
         
-        powerWarning.visibility = if (isUnplugged) android.view.View.VISIBLE else android.view.View.GONE
+        // Power warning
+        val powerMessage = activeAlerts[AlertManager.ALERT_POWER]
+        if (powerMessage != null) {
+            powerWarning.text = "⚠️ $powerMessage"
+            powerWarning.visibility = android.view.View.VISIBLE
+        } else {
+            powerWarning.visibility = android.view.View.GONE
+        }
+        
+        // Signal warning
+        val signalMessage = activeAlerts[AlertManager.ALERT_SIGNAL]
+        if (signalMessage != null) {
+            signalWarning.text = "📵 $signalMessage"
+            signalWarning.visibility = android.view.View.VISIBLE
+        } else {
+            signalWarning.visibility = android.view.View.GONE
+        }
     }
 }

@@ -24,6 +24,14 @@ class SmashService : Service() {
     private lateinit var mmsObserver: MmsObserver
     private lateinit var messageSyncManager: MessageSyncManager
     private lateinit var powerMonitor: PowerMonitor
+    private lateinit var signalMonitor: SignalMonitor
+    private lateinit var storageMonitor: StorageMonitor
+    private var wasDefaultSmsApp = true
+
+    @Volatile
+    private var replyPhoneNum: String? = null
+
+    fun getReplyPhoneNum(): String? = replyPhoneNum
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -74,6 +82,12 @@ class SmashService : Service() {
         SmashLogger.verbose("SmashService onCreate")
         createNotificationChannel()
         
+        // Initialize centralized beep service
+        BeepService.init()
+        
+        // Initialize centralized alert manager
+        AlertManager.init(this)
+        
         // Initialize command processor
         commandProcessor = CommandProcessor(this, SmashApplication.getConfigManager())
         
@@ -104,6 +118,44 @@ class SmashService : Service() {
             notifyTargetsOfPowerState(isPluggedIn)
         }
         powerMonitor.start()
+
+        // Initialize signal monitor - beeps when cell signal lost
+        signalMonitor = SignalMonitor(this) { hasSignal, reason ->
+            updateNotification()
+            notifyTargetsOfSignalState(hasSignal, reason)
+        }
+        signalMonitor.start()
+
+        // Initialize storage monitor - alerts when storage low
+        storageMonitor = StorageMonitor(this) { isLow ->
+            updateNotification()
+            notifyTargetsOfStorageState(isLow)
+        }
+        storageMonitor.start()
+
+        // Track default SMS app status
+        wasDefaultSmsApp = PhoneUtils.isDefaultSmsApp(this)
+    }
+
+    fun ensureWarningsTarget() {
+        val config = SmashApplication.getConfigManager().load()
+        if (config.targets.isEmpty()) {
+            SmashLogger.info("ensureWarningsTarget: no targets configured, skipping")
+            return
+        }
+        val existing = config.targetsWithFlag("getWarnings")
+        if (existing.isNotEmpty()) {
+            SmashLogger.info("ensureWarningsTarget: getWarnings already set on ${existing.joinToString()}, no change")
+            return
+        }
+        val first = config.targets.first()
+        val (newConfig, wasAdded) = config.addFlag(first, "getWarnings")
+        if (wasAdded) {
+            val saved = SmashApplication.getConfigManager().save(newConfig)
+            SmashLogger.info("ensureWarningsTarget: auto-assigned getWarnings to $first (saved=$saved)")
+        } else {
+            SmashLogger.info("ensureWarningsTarget: addFlag returned wasAdded=false for $first (unexpected)")
+        }
     }
 
     /**
@@ -112,9 +164,8 @@ class SmashService : Service() {
     private fun notifyTargetsOfPowerState(isPluggedIn: Boolean) {
         val config = SmashApplication.getConfigManager().load()
         val message = if (isPluggedIn) "Smash phone plugged back in" else "Smash phone unplugged"
-        
-        for (target in config.targets) {
-            // Only send to phone numbers, not email addresses
+
+        for (target in config.targetsWithFlag("getWarnings")) {
             if (!target.contains('@')) {
                 val cleanedNumber = PhoneUtils.cleanPhone(target)
                 if (cleanedNumber.isNotEmpty()) {
@@ -124,9 +175,101 @@ class SmashService : Service() {
         }
     }
 
+    /**
+     * Notify targets when signal state changes.
+     * Signal lost: email only (can't SMS without signal, but WiFi may work)
+     * Signal restored: SMS to phone targets
+     */
+    private fun notifyTargetsOfSignalState(hasSignal: Boolean, reason: String?) {
+        val config = SmashApplication.getConfigManager().load()
+        val warningTargets = config.targetsWithFlag("getWarnings")
+
+        if (hasSignal) {
+            val message = "✅ Smash phone signal restored"
+            for (target in warningTargets) {
+                if (!target.contains('@')) {
+                    val cleanedNumber = PhoneUtils.cleanPhone(target)
+                    if (cleanedNumber.isNotEmpty()) {
+                        SmsUtils.sendSms(this, cleanedNumber, message)
+                    }
+                }
+            }
+        } else {
+            val message = "📵 Smash phone lost cell signal!\n\nReason: ${reason ?: "Unknown"}\n\nSMS forwarding is NOT working until this is resolved."
+            val emailTargets = warningTargets.filter { it.contains('@') }
+            val recipients = emailTargets.ifEmpty {
+                // No getWarnings email target — fall back to first email in targets list
+                listOfNotNull(config.targets.firstOrNull { it.contains('@') })
+                    .also { if (it.isNotEmpty()) SmashLogger.info("signal loss: no getWarnings email target, falling back to ${it.first()}") }
+            }
+            if (recipients.isEmpty()) {
+                SmashLogger.error("signal loss: no email target available — cannot send signal loss alert!")
+            }
+            for (target in recipients) {
+                messageForwarder.forwardToEmail(
+                    origin = "smash-alert",
+                    body = message,
+                    destination = target,
+                    timestamp = System.currentTimeMillis()
+                )
+            }
+        }
+    }
+
+    /**
+     * Notify targets when storage state changes.
+     * Storage low: email only (SMS still works, but want to alert)
+     */
+    private fun notifyTargetsOfStorageState(isLow: Boolean) {
+        val config = SmashApplication.getConfigManager().load()
+
+        if (isLow) {
+            val message = "💾 Smash phone storage is low!\n\nPlease clear some space to ensure MMS downloads and logs work properly."
+            for (target in config.targetsWithFlag("getWarnings")) {
+                if (target.contains('@')) {
+                    messageForwarder.forwardToEmail(
+                        origin = "smash-alert",
+                        body = message,
+                        destination = target,
+                        timestamp = System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+        // No notification when storage is restored - not important
+    }
+
+    /**
+     * Check if we lost default SMS app status and notify via email (no loud alert).
+     */
+    private fun checkDefaultSmsAppStatus() {
+        val isDefaultNow = PhoneUtils.isDefaultSmsApp(this)
+        
+        if (wasDefaultSmsApp && !isDefaultNow) {
+            SmashLogger.error("Lost default SMS app status!")
+            val config = SmashApplication.getConfigManager().load()
+            val message = "⚠️ Smash lost default SMS app status!\n\nSMS forwarding will NOT work until this is fixed.\n\nOpen the app and grant default SMS permissions."
+            for (target in config.targets) {
+                if (target.contains('@')) {
+                    messageForwarder.forwardToEmail(
+                        origin = "smash-alert",
+                        body = message,
+                        destination = target,
+                        timestamp = System.currentTimeMillis()
+                    )
+                }
+            }
+        } else if (!wasDefaultSmsApp && isDefaultNow) {
+            SmashLogger.info("Default SMS app status restored")
+        }
+        
+        wasDefaultSmsApp = isDefaultNow
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val trigger = intent?.getStringExtra(EXTRA_TRIGGER) ?: "unknown"
         SmashLogger.info("SmashService started (trigger: $trigger)")
+        ensureWarningsTarget()
         
         // Start foreground immediately with "checking" status to avoid ANR
         val initialNotification = createNotification(checking = true)
@@ -151,6 +294,9 @@ class SmashService : Service() {
         mmsObserver.unregister()
         messageSyncManager.stop()
         powerMonitor.stop()
+        signalMonitor.stop()
+        storageMonitor.stop()
+        BeepService.release()
         SmashLogger.verbose("SmashService onDestroy")
     }
 
@@ -171,6 +317,11 @@ class SmashService : Service() {
      * Check if power is currently plugged in.
      */
     fun isPowerPluggedIn(): Boolean = if (::powerMonitor.isInitialized) powerMonitor.isPluggedIn else true
+
+    /**
+     * Check if cell signal is usable.
+     */
+    fun hasUsableSignal(): Boolean = if (::signalMonitor.isInitialized) signalMonitor.hasUsableSignal else true
 
     /**
      * Enqueue a message for processing.
@@ -200,7 +351,20 @@ class SmashService : Service() {
                 SmashLogger.verbose("ignored blocked sender: ${message.sender}")
                 return
             }
-            
+
+            // Check message body against filter list
+            if (config.isFiltered(body)) {
+                SmashLogger.verbose("filtered message from ${message.sender}: $body")
+                return
+            }
+
+            // Track last external sender for Cmd reply — skip targets
+            val cleanedSender = PhoneUtils.cleanPhone(message.sender)
+            val isFromTarget = config.targets.any { PhoneUtils.cleanPhone(it) == cleanedSender }
+            if (!isFromTarget) {
+                replyPhoneNum = message.sender
+            }
+
             // Log the incoming message
             val attachmentInfo = if (message.hasAttachments) {
                 " (${message.attachments.size} attachments)"
@@ -277,12 +441,25 @@ class SmashService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
 
-        // Add red "Plug me in!" if unplugged
-        if (!checking && ::powerMonitor.isInitialized && !powerMonitor.isPluggedIn) {
-            // Show warning in both collapsed and expanded views
-            builder.setContentText("⚠️ PLUG ME IN!")
+        // Check for alert conditions using AlertManager
+        val activeAlerts = AlertManager.getActiveAlerts()
+
+        if (!checking && activeAlerts.isNotEmpty()) {
+            val warnings = mutableListOf<String>()
+            if (activeAlerts.containsKey(AlertManager.ALERT_POWER)) {
+                warnings.add("⚠️ ${activeAlerts[AlertManager.ALERT_POWER]}")
+            }
+            if (activeAlerts.containsKey(AlertManager.ALERT_SIGNAL)) {
+                warnings.add("📵 ${activeAlerts[AlertManager.ALERT_SIGNAL]}")
+            }
+            if (activeAlerts.containsKey(AlertManager.ALERT_STORAGE)) {
+                warnings.add("💾 ${activeAlerts[AlertManager.ALERT_STORAGE]}")
+            }
+            val warningText = warnings.joinToString(" | ")
+            
+            builder.setContentText(warningText)
             val styledText = Html.fromHtml(
-                "$contentText<br><font color='#FF0000'><b>⚠️ PLUG ME IN!</b></font>",
+                "$contentText<br><font color='#FF0000'><b>$warningText</b></font>",
                 Html.FROM_HTML_MODE_COMPACT
             )
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(styledText))
@@ -297,6 +474,9 @@ class SmashService : Service() {
      * Update the notification (e.g., when default SMS app status changes).
      */
     fun updateNotification() {
+        // Also check if we lost default SMS app status
+        checkDefaultSmsAppStatus()
+        
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, createNotification())
     }

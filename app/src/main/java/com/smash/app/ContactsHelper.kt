@@ -49,43 +49,25 @@ object ContactsHelper {
 
     /**
      * Get a display name for a phone number.
-     * Checks alias first, then contacts, falls back to raw number.
-     * 
-     * @param context Android context
-     * @param phoneNumber The phone number
-     * @param config The SmashConfig with aliases
-     * @return Display name (alias, contact name, or phone number)
+     * Checks alias first, then contacts (full name + number), falls back to raw number.
      */
     fun getDisplayName(context: Context, phoneNumber: String, config: SmashConfig): String {
-        // First check aliases
         config.findAliasName(phoneNumber)?.let { return it }
-        
-        // Then check contacts
-        lookupName(context, phoneNumber)?.let { return it }
-        
-        // Fall back to phone number
+        lookupName(context, phoneNumber)?.let { fullName ->
+            return "$fullName $phoneNumber"
+        }
         return phoneNumber
     }
 
     /**
-     * Get a short display name for a phone number (first name only for contacts).
-     * Checks alias first, then contacts (first name only), falls back to raw number.
-     * 
-     * @param context Android context
-     * @param phoneNumber The phone number
-     * @param config The SmashConfig with aliases
-     * @return Short display name (alias, first name, or phone number)
+     * Get a display name for a phone number (phone targets).
+     * Checks alias first, then contacts (full name + number), falls back to raw number.
      */
     fun getDisplayNameShort(context: Context, phoneNumber: String, config: SmashConfig): String {
-        // First check aliases (use as-is)
         config.findAliasName(phoneNumber)?.let { return it }
-        
-        // Then check contacts - use first name only
         lookupName(context, phoneNumber)?.let { fullName ->
-            return fullName.split(" ").firstOrNull() ?: fullName
+            return "$fullName $phoneNumber"
         }
-        
-        // Fall back to phone number
         return phoneNumber
     }
 }

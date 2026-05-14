@@ -27,6 +27,8 @@ class MessageSyncManager(
         private const val PREF_LAST_MMS_ID = "last_mms_id"
         private const val PREF_LAST_SYNC_TIME = "last_sync_time"
         
+        const val scanForMissedMessages = false
+
         // Default sync interval: 5 minutes
         private const val DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000L
         
@@ -137,6 +139,9 @@ class MessageSyncManager(
      * Perform the actual sync - check for missed SMS and MMS.
      */
     private fun performSync(): SyncResult {
+        if (!scanForMissedMessages) {
+            return SyncResult(0, 0, 0, 0, 0)
+        }
         val startTime = System.currentTimeMillis()
         
         var smsFound = 0

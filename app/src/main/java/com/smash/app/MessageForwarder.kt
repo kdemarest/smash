@@ -78,6 +78,24 @@ class MessageForwarder(private val context: Context) {
     }
 
     /**
+     * Send a plain-text alert email. Used by SmashService for power/signal/storage alerts.
+     */
+    fun forwardToEmail(origin: String, body: String, destination: String, timestamp: Long): Boolean {
+        val config = SmashApplication.getConfigManager().load()
+        if (config.mailEndpointUrl.isNullOrBlank()) {
+            SmashLogger.error("ALERT EMAIL FAILED to $destination: mailEndpointUrl not configured")
+            return false
+        }
+        return EmailForwarder.forward(
+            endpointUrl = config.mailEndpointUrl,
+            origin = origin,
+            destinationEmail = destination,
+            messageBody = body,
+            timestamp = timestamp
+        )
+    }
+
+    /**
      * Forward to an email target via HTTP POST.
      * Includes image attachments if present.
      */

@@ -33,9 +33,24 @@ The app must:
 
 Since smash runs on a dedicated phone that should always be plugged in, the app monitors power state:
 - When the phone is unplugged, it beeps immediately, then every 60 seconds
-- When plugged back in, beeping stops
-- Uses alarm-volume audio to ensure audibility
+- A full-screen red alert appears over the lock screen: "⚠️ PLUG ME IN!"
+- The notification shows "⚠️ PLUG ME IN!" warning
+- An SMS is sent to all targets: "⚠️ Smash phone unplugged!"
+- When plugged back in, alert dismisses, beeping stops, SMS confirms restoration
+- REMOVED - Uses alarm-volume audio to ensure audibility
 - Helps alert caretakers to reconnect the charger
+
+# Signal Monitor
+
+The app monitors cell signal strength to ensure SMS/MMS can be sent:
+- Signal levels 0-1 (none/poor) are treated as "no usable signal"
+- Signal levels 2-4 (moderate/good/great) are considered usable
+- When signal is lost, it beeps immediately, then every 60 seconds
+- A full-screen orange alert appears over the lock screen: "📵 NO SIGNAL!"
+- The notification shows "📵 NO SIGNAL!" warning
+- An email is sent to all email targets via WiFi (since SMS won't work without signal)
+- When signal is restored, alert dismisses, beeping stops, SMS confirms restoration
+- Uses alarm-volume audio to ensure audibility
 
 # Data Storage: smash.json
 
@@ -44,12 +59,24 @@ smash.json is UTF-8 JSON stored in app-private internal storage.
 Fields:
 {
   "prefix": "<Cmd_or_another_value>",
+  "filters": [ "<text>", ... ],
   "mailEndpointUrl": "<http_url_or_null>",
   "logEndpointUrl": "<http_url_or_null>",
   "targets": [ "<phone_or_email>", ... ],
   "aliases": { "<name>": "<number>", ... },
-  "verbose": false
+  "verbose": false,
+  "targetFlags": [ { "target": "<phone_or_email>", "flag": "<flagName>" }, ... ]
 }
+
+filters rules:
+- each element is a substring to match against incoming message bodies (case-insensitive)
+- messages matching any filter are silently dropped and not forwarded
+
+targetFlags rules:
+- each entry associates one flag with one target address
+- a target may have multiple entries (one per flag)
+- flags are arbitrary strings; currently defined flag: "getWarnings"
+- targets do not need to be in the targets list to have flags set
 
 prefix rules:
 - defaults to "Cmd", and can never be empty
@@ -184,14 +211,21 @@ If a reply is longer than 160 characters (notably for the "list" and "log" comma
 - with no argument, shows usage hint
 - list prefix: shows current prefix
 - list endpoints: shows email and log endpoint URLs
-- list targets: shows all targets, one per line
+- list targets: shows all targets, one per line; flags for each target appear on the same line after the address
 - list aliases: shows all aliases as name=number
-- list blocked: shows last 10 system-blocked numbers with total count
+- list filters: shows all active filters, one per line
+- list bans: shows last 10 system-blocked numbers with total count
 
 (4) <prefix> send <number> <text>
 - send SMS with <text> to cleanPhone(<number>)
 - reply to origin: "sent" or "failed"
 - <text> may contain spaces
+
+(4b) <prefix> reply <text>
+- sends <text> to replyPhoneNum, the last phone number a non-command, non-target message was received from
+- commands issued by any sender do not update replyPhoneNum
+- messages received from any number in the targets list do not update replyPhoneNum
+- reply to origin: "sent to <number>" or "no reply number set" if no qualifying message has arrived
 
 (5) <prefix> endpoint email|log <url|disable>
 - set mailEndpointUrl or logEndpointUrl based on first argument
@@ -229,21 +263,38 @@ If a reply is longer than 160 characters (notably for the "list" and "log" comma
 - rewrite smash.json
 - reply to origin: "alias <name> set", "removed", or "not found"
 
-(11) <prefix> ban [list] | ban <number> | ban remove <number>
+(11) <prefix> ban <number>|last | ban remove <number>
 - manages system-level blocked numbers via Android's BlockedNumberContract
 - blocked numbers are shared with Google Messages, Phone app, etc.
 - requires being the default SMS app
-- "ban" or "ban list": shows last 10 blocked numbers with total count
 - "ban <number>": blocks the number at system level
+- "ban last": blocks replyPhoneNum (the last non-target, non-command sender)
 - "ban remove <number>": unblocks the number
-- reply to origin: "blocked", "already blocked", "unblocked", "not found", or error
+- use "list bans" to see blocked numbers
+- reply to origin: "blocked <number>", "already blocked", "unblocked", "not found", or error
 
 (12) <prefix> emaillog <address>
 - emails the last 200 log lines to the specified email address
 - requires mailEndpointUrl to be configured
 - reply to origin: "log emailed to <address>" or error
 
-(13) <prefix> help
+(13) <prefix> filter add|remove <text>
+- add: appends <text> to the filter list if not already present (case-insensitive duplicate check)
+- remove: removes the matching entry (case-insensitive)
+- any incoming message whose body contains a filter string (case-insensitive) is silently dropped
+- rewrite smash.json
+- reply to origin: "filter added", "filter already exists", "removed", or "not found"
+
+(15) <prefix> flag add|remove <target> <flagName>
+- add: associates <flagName> with <target> in targetFlags
+- remove: removes the association of <flagName> from <target>
+- reply to origin: confirmation or "not found" / "already set"
+
+# Defined Flags
+
+- getWarnings: target receives alert notifications (unplugged, no cell signal, low storage)
+
+(16) <prefix> help
 - lists all available commands with brief syntax
 - useful as a quick reference
 

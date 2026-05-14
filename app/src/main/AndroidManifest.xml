@@ -62,14 +62,14 @@
             android:exported="false"
             android:label="@string/status_title" />
 
-        <!-- Unplugged Alert Activity (full-screen intent) -->
+        <!-- Unified Alert Activity (full-screen intent for all alerts) -->
         <activity
-            android:name=".UnpluggedAlertActivity"
+            android:name=".AlertActivity"
             android:exported="false"
             android:theme="@style/Theme.Smash.FullScreenAlert"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity="" />
 
