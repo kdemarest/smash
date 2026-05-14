@@ -15,6 +15,8 @@ object AlertManager {
     const val ALERT_POWER = "power"
     const val ALERT_SIGNAL = "signal"
     const val ALERT_STORAGE = "storage"
+    const val ALERT_TAILSCALE = "tailscale"
+    const val ALERT_ENDPOINT = "endpoint"
 
     // Map of active alerts: type -> message
     private val activeAlerts = mutableMapOf<String, String>()

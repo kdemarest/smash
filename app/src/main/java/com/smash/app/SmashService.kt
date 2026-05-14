@@ -26,6 +26,8 @@ class SmashService : Service() {
     private lateinit var powerMonitor: PowerMonitor
     private lateinit var signalMonitor: SignalMonitor
     private lateinit var storageMonitor: StorageMonitor
+    private lateinit var tailscaleMonitor: TailscaleMonitor
+    private lateinit var endpointMonitor: EndpointMonitor
     private var wasDefaultSmsApp = true
 
     @Volatile
@@ -133,6 +135,20 @@ class SmashService : Service() {
         }
         storageMonitor.start()
 
+        // Initialize Tailscale/VPN monitor - alerts when VPN goes down
+        tailscaleMonitor = TailscaleMonitor(this) { isUp ->
+            updateNotification()
+            notifyTargetsOfVpnState(isUp)
+        }
+        tailscaleMonitor.start()
+
+        // Initialize endpoint monitor - checks mail/log endpoints hourly
+        endpointMonitor = EndpointMonitor(this) { isUp ->
+            updateNotification()
+            notifyTargetsOfEndpointState(isUp)
+        }
+        endpointMonitor.start()
+
         // Track default SMS app status
         wasDefaultSmsApp = PhoneUtils.isDefaultSmsApp(this)
     }
@@ -239,6 +255,38 @@ class SmashService : Service() {
         // No notification when storage is restored - not important
     }
 
+    private fun notifyTargetsOfEndpointState(isUp: Boolean) {
+        val config = SmashApplication.getConfigManager().load()
+        val message = if (isUp) "Smash endpoints restored" else "Smash endpoint unreachable!"
+
+        for (target in config.targetsWithFlag("getWarnings")) {
+            if (!target.contains('@')) {
+                val cleanedNumber = PhoneUtils.cleanPhone(target)
+                if (cleanedNumber.isNotEmpty()) {
+                    SmsUtils.sendSms(this, cleanedNumber, message)
+                }
+            }
+        }
+    }
+
+    /**
+     * Notify targets when VPN state changes via SMS.
+     * VPN loss doesn't affect WiFi/cellular, so SMS works fine in both directions.
+     */
+    private fun notifyTargetsOfVpnState(isUp: Boolean) {
+        val config = SmashApplication.getConfigManager().load()
+        val message = if (isUp) "Smash phone VPN restored" else "Smash phone VPN went down!"
+
+        for (target in config.targetsWithFlag("getWarnings")) {
+            if (!target.contains('@')) {
+                val cleanedNumber = PhoneUtils.cleanPhone(target)
+                if (cleanedNumber.isNotEmpty()) {
+                    SmsUtils.sendSms(this, cleanedNumber, message)
+                }
+            }
+        }
+    }
+
     /**
      * Check if we lost default SMS app status and notify via email (no loud alert).
      */
@@ -296,6 +344,8 @@ class SmashService : Service() {
         powerMonitor.stop()
         signalMonitor.stop()
         storageMonitor.stop()
+        tailscaleMonitor.stop()
+        endpointMonitor.stop()
         BeepService.release()
         SmashLogger.verbose("SmashService onDestroy")
     }
@@ -454,6 +504,12 @@ class SmashService : Service() {
             }
             if (activeAlerts.containsKey(AlertManager.ALERT_STORAGE)) {
                 warnings.add("💾 ${activeAlerts[AlertManager.ALERT_STORAGE]}")
+            }
+            if (activeAlerts.containsKey(AlertManager.ALERT_TAILSCALE)) {
+                warnings.add("🔒 ${activeAlerts[AlertManager.ALERT_TAILSCALE]}")
+            }
+            if (activeAlerts.containsKey(AlertManager.ALERT_ENDPOINT)) {
+                warnings.add("🌐 ${activeAlerts[AlertManager.ALERT_ENDPOINT]}")
             }
             val warningText = warnings.joinToString(" | ")
             

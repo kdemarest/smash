@@ -51,6 +51,28 @@
                     android:textSize="14sp"
                     android:textStyle="bold"
                     android:textColor="#CC6600"
+                    android:visibility="gone"
+                    android:layout_marginEnd="8dp" />
+
+                <TextView
+                    android:id="@+id/tailscaleWarning"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔒 VPN DOWN!"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#8800CC"
+                    android:visibility="gone"
+                    android:layout_marginEnd="8dp" />
+
+                <TextView
+                    android:id="@+id/endpointWarning"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🌐 ENDPOINT DOWN!"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#006688"
                     android:visibility="gone" />
 
             </LinearLayout>

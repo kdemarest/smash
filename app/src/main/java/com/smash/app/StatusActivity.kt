@@ -20,6 +20,8 @@ class StatusActivity : AppCompatActivity() {
     private lateinit var uptimeValue: TextView
     private lateinit var powerWarning: TextView
     private lateinit var signalWarning: TextView
+    private lateinit var tailscaleWarning: TextView
+    private lateinit var endpointWarning: TextView
     private lateinit var prefixValue: TextView
     private lateinit var mailEndpointValue: TextView
     private lateinit var logEndpointValue: TextView
@@ -60,6 +62,8 @@ class StatusActivity : AppCompatActivity() {
         uptimeValue = findViewById(R.id.uptimeValue)
         powerWarning = findViewById(R.id.powerWarning)
         signalWarning = findViewById(R.id.signalWarning)
+        tailscaleWarning = findViewById(R.id.tailscaleWarning)
+        endpointWarning = findViewById(R.id.endpointWarning)
         prefixValue = findViewById(R.id.prefixValue)
         mailEndpointValue = findViewById(R.id.mailEndpointValue)
         logEndpointValue = findViewById(R.id.logEndpointValue)
@@ -186,6 +190,24 @@ class StatusActivity : AppCompatActivity() {
             signalWarning.visibility = android.view.View.VISIBLE
         } else {
             signalWarning.visibility = android.view.View.GONE
+        }
+
+        // Tailscale/VPN warning
+        val tailscaleMessage = activeAlerts[AlertManager.ALERT_TAILSCALE]
+        if (tailscaleMessage != null) {
+            tailscaleWarning.text = "🔒 $tailscaleMessage"
+            tailscaleWarning.visibility = android.view.View.VISIBLE
+        } else {
+            tailscaleWarning.visibility = android.view.View.GONE
+        }
+
+        // Endpoint warning
+        val endpointMessage = activeAlerts[AlertManager.ALERT_ENDPOINT]
+        if (endpointMessage != null) {
+            endpointWarning.text = "🌐 $endpointMessage"
+            endpointWarning.visibility = android.view.View.VISIBLE
+        } else {
+            endpointWarning.visibility = android.view.View.GONE
         }
     }
 }
