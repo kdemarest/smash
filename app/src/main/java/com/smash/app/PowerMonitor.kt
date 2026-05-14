@@ -52,7 +52,7 @@ class PowerMonitor(
                 Intent.ACTION_POWER_DISCONNECTED -> {
                     isPluggedIn = false
                     val battery = getBatteryLevel()
-                    SmashLogger.info("Power disconnected, battery: $battery%")
+                    SmashLogger.warning("Power disconnected, battery: $battery%")
                     checkAndAlert()
                 }
             }
