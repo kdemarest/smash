@@ -36,6 +36,17 @@ install.cmd
 
 After any Samsung OTA update, recheck: battery (Unrestricted), permissions, and default SMS app.
 
+## Configure Tailscale
+
+- Settings → Apps → Tailscale → Battery → **Unrestricted**
+- Settings → Apps → Tailscale → Application Data Usage → Allow Background Data Usage = ON
+- Settings → Apps → Tailscale → Application Data Usage → Allow Data Usage while Data Saver is on = ON
+- Settings → Battery → Background Usage Limits → Put unused apps to sleep → **Off**
+- Settings → Network → VPN → gear icon next to Tailscale → **Always-on VPN: On**
+- Settings → Network → VPN → gear icon next to Tailscale → **Block connections without VPN: Off**
+
+After any Samsung OTA update, recheck these settings.
+
 ## Project Structure
 
 ```
