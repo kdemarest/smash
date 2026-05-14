@@ -42,8 +42,9 @@ class PowerMonitor(
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
                 Intent.ACTION_POWER_CONNECTED -> {
-                    SmashLogger.info("Power connected")
                     isPluggedIn = true
+                    val battery = getBatteryLevel()
+                    SmashLogger.warning("Power connected, battery: $battery%")
                     if (AlertManager.isAlertActive(AlertManager.ALERT_POWER)) {
                         AlertManager.removeAlert(AlertManager.ALERT_POWER)
                         onPowerStateChanged?.invoke(true)
