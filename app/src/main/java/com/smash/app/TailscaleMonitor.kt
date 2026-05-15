@@ -6,7 +6,8 @@ import android.os.Looper
 import java.net.NetworkInterface
 
 /**
- * Monitors Tailscale connectivity by polling for a 100.64.0.0/10 address every minute.
+ * Monitors Tailscale connectivity by polling for a 100.64.0.0/10 address.
+ * Polls every 10s when VPN is up, every 2s when down for fast recovery detection.
  */
 class TailscaleMonitor(
     private val context: Context,
@@ -15,7 +16,8 @@ class TailscaleMonitor(
 
     companion object {
         private const val ALERT_MESSAGE = "VPN is down!"
-        private const val CHECK_INTERVAL_MS = 60_000L
+        private const val INTERVAL_UP_MS = 10_000L
+        private const val INTERVAL_DOWN_MS = 2_000L
     }
 
     private var isMonitoring = false
@@ -27,7 +29,7 @@ class TailscaleMonitor(
         override fun run() {
             if (isMonitoring) {
                 checkVpnState()
-                handler.postDelayed(this, CHECK_INTERVAL_MS)
+                handler.postDelayed(this, if (isVpnUp) INTERVAL_UP_MS else INTERVAL_DOWN_MS)
             }
         }
     }
@@ -36,7 +38,7 @@ class TailscaleMonitor(
         if (isMonitoring) return
         isMonitoring = true
         checkVpnState()
-        handler.postDelayed(checkRunnable, CHECK_INTERVAL_MS)
+        handler.postDelayed(checkRunnable, if (isVpnUp) INTERVAL_UP_MS else INTERVAL_DOWN_MS)
         SmashLogger.verbose("TailscaleMonitor started")
     }
 
@@ -64,9 +66,9 @@ class TailscaleMonitor(
             return
         }
 
-        SmashLogger.info("TailscaleMonitor: VPN ${if (hasVpn) "up" else "down"}")
-
         if (hasVpn == isVpnUp) return
+
+        SmashLogger.warning("TailscaleMonitor: VPN ${if (hasVpn) "up" else "down"}")
 
         isVpnUp = hasVpn
         if (hasVpn) {

@@ -395,7 +395,7 @@ class CommandProcessor(
             countArg.toIntOrNull() ?: 20
         }
 
-        val logLines = SmashLogger.getLastLinesAsString(count)
+        val logLines = SmashLogger.getLastLinesAsString(count, localizeTimestamps = true)
         
         val reply = if (logLines.isEmpty()) {
             "(log is empty)"
@@ -423,7 +423,7 @@ class CommandProcessor(
             return CommandResult.Error("mail endpoint not configured, use setmail first")
         }
 
-        val logContent = SmashLogger.getLastLinesAsString(200)
+        val logContent = SmashLogger.getLastLinesAsString(200, localizeTimestamps = true)
         val body = if (logContent.isEmpty()) {
             "(log is empty)"
         } else {
@@ -566,29 +566,17 @@ class CommandProcessor(
         
         return when (value) {
             "1", "on", "true" -> {
-                val config = configManager.load()
-                val newConfig = config.copy(verbose = true)
-                if (configManager.save(newConfig)) {
-                    SmashLogger.isVerbose = true
-                    SmashLogger.info("verbose logging enabled")
-                    CommandResult.Success("verbose on")
-                } else {
-                    CommandResult.Error(REPLY_PERSIST_FAILED)
-                }
+                SmashLogger.logMode = SmashLogger.LogMode.VERBOSE
+                SmashLogger.info("verbose logging enabled")
+                CommandResult.Success("verbose on")
             }
             "0", "off", "false" -> {
-                val config = configManager.load()
-                val newConfig = config.copy(verbose = false)
-                if (configManager.save(newConfig)) {
-                    SmashLogger.info("verbose logging disabled")
-                    SmashLogger.isVerbose = false
-                    CommandResult.Success("verbose off")
-                } else {
-                    CommandResult.Error(REPLY_PERSIST_FAILED)
-                }
+                SmashLogger.info("verbose logging disabled")
+                SmashLogger.logMode = SmashLogger.LogMode.INFO
+                CommandResult.Success("verbose off")
             }
             "" -> {
-                val current = if (SmashLogger.isVerbose) "on" else "off"
+                val current = SmashLogger.logMode.name.lowercase()
                 CommandResult.Success("verbose: $current")
             }
             else -> {

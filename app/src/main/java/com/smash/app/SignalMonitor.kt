@@ -50,7 +50,7 @@ class SignalMonitor(
     private val signalLossRunnable = Runnable {
         val reason = pendingLossReason ?: return@Runnable
         hasUsableSignal = false
-        SmashLogger.info("Cell signal unusable (sustained 20s): $reason")
+        SmashLogger.warning("Cell signal unusable (sustained 20s): $reason")
         AlertManager.addAlert(AlertManager.ALERT_SIGNAL, reason)
         onSignalStateChanged?.invoke(false, reason)
     }
@@ -311,7 +311,7 @@ class SignalMonitor(
             }
             if (!hasUsableSignal) {
                 hasUsableSignal = true
-                SmashLogger.info("Cell signal restored (level: $signalLevel)")
+                SmashLogger.warning("Cell signal restored (level: $signalLevel)")
                 AlertManager.removeAlert(AlertManager.ALERT_SIGNAL)
                 onSignalStateChanged?.invoke(true, null)
             }
@@ -330,10 +330,10 @@ class SignalMonitor(
                 else -> "Move Phone to stronger Signal!"
             }
             if (pendingLossReason == null && hasUsableSignal) {
-                // Start debounce timer
                 pendingLossReason = reason
-                handler.postDelayed(signalLossRunnable, SIGNAL_LOSS_DEBOUNCE_MS)
-                SmashLogger.verbose("SignalMonitor: signal low, waiting ${SIGNAL_LOSS_DEBOUNCE_MS/1000}s before alerting")
+                val delay = if (isAirplaneModeOn) 0L else SIGNAL_LOSS_DEBOUNCE_MS
+                handler.postDelayed(signalLossRunnable, delay)
+                if (delay > 0) SmashLogger.verbose("SignalMonitor: signal low, waiting ${delay/1000}s before alerting")
             }
         }
     }

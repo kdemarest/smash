@@ -26,8 +26,11 @@ class StatusActivity : AppCompatActivity() {
     private lateinit var mailEndpointValue: TextView
     private lateinit var logEndpointValue: TextView
     private lateinit var targetsValue: TextView
+    private lateinit var logLabel: TextView
+    private lateinit var logLevelButton: android.widget.Button
     private lateinit var logValue: TextView
     private lateinit var logScrollView: ScrollView
+    private var viewMode: SmashLogger.LogMode = SmashLogger.LogMode.INFO
 
     private val mainHandler = Handler(Looper.getMainLooper())
     
@@ -68,8 +71,19 @@ class StatusActivity : AppCompatActivity() {
         mailEndpointValue = findViewById(R.id.mailEndpointValue)
         logEndpointValue = findViewById(R.id.logEndpointValue)
         targetsValue = findViewById(R.id.targetsValue)
+        logLabel = findViewById(R.id.logLabel)
+        logLevelButton = findViewById(R.id.logLevelButton)
         logValue = findViewById(R.id.logValue)
         logScrollView = findViewById(R.id.logScrollView)
+
+        logLevelButton.setOnClickListener {
+            viewMode = when (viewMode) {
+                SmashLogger.LogMode.VERBOSE -> SmashLogger.LogMode.INFO
+                SmashLogger.LogMode.INFO -> SmashLogger.LogMode.WARNINGS
+                SmashLogger.LogMode.WARNINGS -> SmashLogger.LogMode.VERBOSE
+            }
+            loadLog()
+        }
 
         loadConfig()
         loadLog()
@@ -149,8 +163,15 @@ class StatusActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateLogLabel() {
+        val mode = viewMode.name.lowercase()
+        logLabel.text = "Recent Log: $mode"
+        logLevelButton.text = mode
+    }
+
     private fun loadLog() {
-        val lines = SmashLogger.getLastLines(50)
+        updateLogLabel()
+        val lines = SmashLogger.getLastLines(200, viewMode).map(SmashLogger::localizeTimestamp)
         logValue.text = if (lines.isEmpty()) {
             "No log entries"
         } else {
@@ -169,45 +190,28 @@ class StatusActivity : AppCompatActivity() {
         val hours = (totalMinutes % (24 * 60)) / 60
         val minutes = totalMinutes % 60
         
-        uptimeValue.text = "Uptime: ${days}d ${hours}h ${minutes}m"
+        uptimeValue.text = "Uptime\n${days}d ${hours}h ${minutes}m"
         
         // Use AlertManager for warning display
         val activeAlerts = AlertManager.getActiveAlerts()
         
-        // Power warning
-        val powerMessage = activeAlerts[AlertManager.ALERT_POWER]
-        if (powerMessage != null) {
-            powerWarning.text = "⚠️ $powerMessage"
-            powerWarning.visibility = android.view.View.VISIBLE
-        } else {
-            powerWarning.visibility = android.view.View.GONE
-        }
-        
-        // Signal warning
-        val signalMessage = activeAlerts[AlertManager.ALERT_SIGNAL]
-        if (signalMessage != null) {
-            signalWarning.text = "📵 $signalMessage"
-            signalWarning.visibility = android.view.View.VISIBLE
-        } else {
-            signalWarning.visibility = android.view.View.GONE
+        val colorOk = android.graphics.Color.parseColor("#666666")
+        val colorInfo = android.graphics.Color.parseColor("#CC6600")
+        val colorWarn = powerWarning.context.getColor(android.R.color.holo_red_light)
+        val infoStates = AlertManager.getInfoStates()
+
+        fun setStatus(view: TextView, alertMessage: String?, warnPrefix: String, okLabel: String, infoMessage: String? = null) {
+            when {
+                alertMessage != null -> { view.text = "$warnPrefix $alertMessage"; view.setTextColor(colorWarn) }
+                infoMessage != null  -> { view.text = "⚡ $infoMessage";           view.setTextColor(colorInfo) }
+                else                 -> { view.text = "✓ $okLabel";               view.setTextColor(colorOk) }
+            }
+            view.visibility = android.view.View.VISIBLE
         }
 
-        // Tailscale/VPN warning
-        val tailscaleMessage = activeAlerts[AlertManager.ALERT_TAILSCALE]
-        if (tailscaleMessage != null) {
-            tailscaleWarning.text = "🔒 $tailscaleMessage"
-            tailscaleWarning.visibility = android.view.View.VISIBLE
-        } else {
-            tailscaleWarning.visibility = android.view.View.GONE
-        }
-
-        // Endpoint warning
-        val endpointMessage = activeAlerts[AlertManager.ALERT_ENDPOINT]
-        if (endpointMessage != null) {
-            endpointWarning.text = "🌐 $endpointMessage"
-            endpointWarning.visibility = android.view.View.VISIBLE
-        } else {
-            endpointWarning.visibility = android.view.View.GONE
-        }
+        setStatus(powerWarning,    activeAlerts[AlertManager.ALERT_POWER],     "⚠️", "Power",     infoStates[AlertManager.INFO_POWER_UNPLUGGED])
+        setStatus(signalWarning,   activeAlerts[AlertManager.ALERT_SIGNAL],    "📵", "Signal")
+        setStatus(tailscaleWarning,activeAlerts[AlertManager.ALERT_TAILSCALE], "🔒", "VPN")
+        setStatus(endpointWarning, activeAlerts[AlertManager.ALERT_ENDPOINT],  "🌐", "Endpoints", infoStates[AlertManager.INFO_ENDPOINT_UNKNOWN])
     }
 }

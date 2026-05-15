@@ -18,8 +18,15 @@ object AlertManager {
     const val ALERT_TAILSCALE = "tailscale"
     const val ALERT_ENDPOINT = "endpoint"
 
+    // Info state types (no beeping, no alert activity)
+    const val INFO_POWER_UNPLUGGED = "power_unplugged"
+    const val INFO_ENDPOINT_UNKNOWN = "endpoint_unknown"
+
     // Map of active alerts: type -> message
     private val activeAlerts = mutableMapOf<String, String>()
+
+    // Map of info states: type -> message (display only, no beeping)
+    private val infoStates = mutableMapOf<String, String>()
     
     private var context: Context? = null
 
@@ -59,6 +66,10 @@ object AlertManager {
             }
         }
     }
+
+    fun addInfoState(key: String, message: String) { infoStates[key] = message }
+    fun removeInfoState(key: String) { infoStates.remove(key) }
+    fun getInfoStates(): Map<String, String> = infoStates.toMap()
 
     /**
      * Check if any alerts are active.

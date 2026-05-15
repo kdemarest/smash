@@ -44,7 +44,8 @@ class PowerMonitor(
                 Intent.ACTION_POWER_CONNECTED -> {
                     isPluggedIn = true
                     val battery = getBatteryLevel()
-                    SmashLogger.warning("Power connected, battery: $battery%")
+                    SmashLogger.info("Power connected, battery: $battery%")
+                    AlertManager.removeInfoState(AlertManager.INFO_POWER_UNPLUGGED)
                     if (AlertManager.isAlertActive(AlertManager.ALERT_POWER)) {
                         AlertManager.removeAlert(AlertManager.ALERT_POWER)
                         onPowerStateChanged?.invoke(true)
@@ -53,7 +54,8 @@ class PowerMonitor(
                 Intent.ACTION_POWER_DISCONNECTED -> {
                     isPluggedIn = false
                     val battery = getBatteryLevel()
-                    SmashLogger.warning("Power disconnected, battery: $battery%")
+                    SmashLogger.info("Power disconnected, battery: $battery%")
+                    AlertManager.addInfoState(AlertManager.INFO_POWER_UNPLUGGED, "Unplugged ($battery%)")
                     checkAndAlert()
                 }
             }
@@ -74,6 +76,7 @@ class PowerMonitor(
         context.registerReceiver(powerReceiver, filter)
 
         isPluggedIn = isCurrentlyPluggedIn()
+        if (!isPluggedIn) AlertManager.addInfoState(AlertManager.INFO_POWER_UNPLUGGED, "Unplugged (${getBatteryLevel()}%)")
         SmashLogger.verbose("PowerMonitor started, plugged in: $isPluggedIn, battery: ${getBatteryLevel()}%")
 
         checkAndAlert()
@@ -103,13 +106,13 @@ class PowerMonitor(
             val battery = getBatteryLevel()
             if (battery < BATTERY_ALERT_THRESHOLD) {
                 if (!AlertManager.isAlertActive(AlertManager.ALERT_POWER)) {
-                    SmashLogger.info("Power alert: unplugged and battery at $battery%")
+                    SmashLogger.warning("Power alert: unplugged and battery at $battery%")
                     AlertManager.addAlert(AlertManager.ALERT_POWER, ALERT_MESSAGE)
                     onPowerStateChanged?.invoke(false)
                 }
             } else {
                 if (AlertManager.isAlertActive(AlertManager.ALERT_POWER)) {
-                    SmashLogger.info("Power alert cleared: battery recovered to $battery% (still unplugged)")
+                    SmashLogger.warning("Power alert cleared: battery recovered to $battery% (still unplugged)")
                     AlertManager.removeAlert(AlertManager.ALERT_POWER)
                 }
             }

@@ -21,76 +21,77 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="24dp">
+                android:layout_marginBottom="16dp">
 
-                <TextView
-                    android:id="@+id/uptimeValue"
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Uptime: 0d 0h 0m"
-                    android:textSize="20sp"
-                    android:textStyle="bold" />
+                    android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/powerWarning"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⚠️ PLUG ME IN!"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#FF0000"
-                    android:visibility="gone"
-                    android:layout_marginEnd="8dp" />
+                    <TextView
+                        android:id="@+id/uptimeValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Uptime\n0d 0h 0m"
+                        android:textSize="20sp"
+                        android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/signalWarning"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📵 NO SIGNAL!"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#CC6600"
-                    android:visibility="gone"
-                    android:layout_marginEnd="8dp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Prefix:"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginTop="8dp" />
 
-                <TextView
-                    android:id="@+id/tailscaleWarning"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔒 VPN DOWN!"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#8800CC"
-                    android:visibility="gone"
-                    android:layout_marginEnd="8dp" />
+                    <TextView
+                        android:id="@+id/prefixValue"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Cmd"
+                        android:textSize="16sp" />
 
-                <TextView
-                    android:id="@+id/endpointWarning"
-                    android:layout_width="wrap_content"
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="🌐 ENDPOINT DOWN!"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:textColor="#006688"
-                    android:visibility="gone" />
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/powerWarning"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/signalWarning"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tailscaleWarning"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/endpointWarning"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Prefix:"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/prefixValue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Cmd"
-                android:textSize="16sp"
-                android:layout_marginBottom="16dp" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -140,15 +141,35 @@
 
     </ScrollView>
 
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Recent Log:"
-        android:textSize="14sp"
-        android:textStyle="bold"
+        android:orientation="horizontal"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:paddingTop="8dp" />
+        android:paddingTop="8dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/logLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Recent Log:"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/logLevelButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="info"
+            android:textSize="12sp"
+            android:minHeight="0dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp" />
+
+    </LinearLayout>
 
     <ScrollView
         android:id="@+id/logScrollView"

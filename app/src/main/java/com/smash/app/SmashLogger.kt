@@ -31,17 +31,19 @@ object SmashLogger {
     }
 
     enum class Level(val tag: String) {
+        VERBOSE("[verbose]"),
         INFO("[info]"),
         WARNING("[warning]"),
         ERROR("[error]"),
         SMS("[SMS]")
     }
 
+    enum class LogMode { VERBOSE, INFO, WARNINGS }
+
     private var logFile: File? = null
-    
-    // Verbose mode - when true, detailed logs are written; when false, only essential logs
+
     @Volatile
-    var isVerbose: Boolean = false
+    var logMode: LogMode = LogMode.INFO
 
     /**
      * Initialize the logger with app context.
@@ -57,10 +59,9 @@ object SmashLogger {
      * Log a verbose message (only written if verbose mode is enabled).
      */
     fun verbose(message: String) {
-        if (isVerbose) {
-            log(Level.INFO, message)
+        if (logMode == LogMode.VERBOSE) {
+            log(Level.VERBOSE, message)
         } else {
-            // Still output to logcat for debugging, but not to file
             android.util.Log.v("SmashLogger", message)
         }
     }
@@ -69,7 +70,9 @@ object SmashLogger {
      * Log an info message.
      */
     fun info(message: String) {
-        log(Level.INFO, message)
+        if (logMode != LogMode.WARNINGS) {
+            log(Level.INFO, message)
+        }
     }
 
     /**
@@ -106,7 +109,7 @@ object SmashLogger {
     private fun log(level: Level, message: String) {
         // Also output to Android logcat for debugging
         when (level) {
-            Level.INFO, Level.SMS -> android.util.Log.i("SmashLogger", message)
+            Level.VERBOSE, Level.INFO, Level.SMS -> android.util.Log.i("SmashLogger", message)
             Level.WARNING -> android.util.Log.w("SmashLogger", message)
             Level.ERROR -> android.util.Log.e("SmashLogger", message)
         }
@@ -132,17 +135,57 @@ object SmashLogger {
     }
 
     /**
-     * Get the last N lines from the log file.
+     * Get the last N lines from the log file, optionally filtered to a minimum log mode.
+     * Reads backward from the end of the file in chunks so arbitrarily large files are safe.
      */
-    fun getLastLines(count: Int): List<String> {
+    fun getLastLines(count: Int, minMode: LogMode = LogMode.VERBOSE): List<String> {
         return lock.withLock {
             val file = logFile ?: return@withLock emptyList()
             try {
                 if (!file.exists()) return@withLock emptyList()
-                
-                val lines = file.readLines(Charsets.UTF_8)
                 val requestedCount = if (count <= 0) 20 else count
-                lines.takeLast(requestedCount)
+                val tags = when (minMode) {
+                    LogMode.VERBOSE -> null
+                    LogMode.INFO -> setOf("[info]", "[warning]", "[error]", "[SMS]")
+                    LogMode.WARNINGS -> setOf("[warning]", "[error]")
+                }
+                val results = ArrayDeque<String>(requestedCount)
+                val chunkSize = 8192L
+                java.io.RandomAccessFile(file, "r").use { raf ->
+                    var pos = raf.length()
+                    val carry = StringBuilder()
+                    while (pos > 0 && results.size < requestedCount) {
+                        val readFrom = maxOf(0, pos - chunkSize)
+                        val readLen = (pos - readFrom).toInt()
+                        val buf = ByteArray(readLen)
+                        raf.seek(readFrom)
+                        raf.readFully(buf)
+                        pos = readFrom
+                        // Prepend carry from previous iteration, then split on newlines
+                        val chunk = String(buf, Charsets.UTF_8) + carry
+                        carry.clear()
+                        val lines = chunk.split('\n')
+                        // lines[0] may be a partial line — carry it backward
+                        carry.append(lines[0])
+                        // Process remaining lines from the end
+                        for (i in lines.size - 1 downTo 1) {
+                            val line = lines[i]
+                            if (line.isBlank()) continue
+                            if (tags == null || tags.any { line.contains(it) }) {
+                                results.addFirst(line)
+                                if (results.size == requestedCount) break
+                            }
+                        }
+                    }
+                    // Handle any remaining carry (the very first line of the file)
+                    if (results.size < requestedCount && carry.isNotBlank()) {
+                        val line = carry.toString()
+                        if (tags == null || tags.any { line.contains(it) }) {
+                            results.addFirst(line)
+                        }
+                    }
+                }
+                results.toList()
             } catch (e: Exception) {
                 listOf("Error reading log: ${e.message}")
             }
@@ -152,8 +195,24 @@ object SmashLogger {
     /**
      * Get the last N lines as a single string.
      */
-    fun getLastLinesAsString(count: Int): String {
-        return getLastLines(count).joinToString("\n")
+    fun getLastLinesAsString(count: Int, localizeTimestamps: Boolean = false): String {
+        return getLastLines(count)
+            .let { if (localizeTimestamps) it.map(::localizeTimestamp) else it }
+            .joinToString("\n")
+    }
+
+    private val localDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+        timeZone = TimeZone.getDefault()
+    }
+
+    fun localizeTimestamp(line: String): String {
+        if (line.length < 19) return line
+        return try {
+            val parsed = dateFormat.parse(line.substring(0, 19)) ?: return line
+            localDateFormat.format(parsed) + line.substring(19)
+        } catch (e: Exception) {
+            line
+        }
     }
 
     /**

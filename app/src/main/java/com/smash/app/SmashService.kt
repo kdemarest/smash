@@ -69,7 +69,7 @@ class SmashService : Service() {
          * Stop the foreground service.
          */
         fun stop(context: Context) {
-            SmashLogger.info("SmashService stop requested")
+            SmashLogger.warning("SmashService stop requested")
             instance?.stopSelf()
             val intent = Intent(context, SmashService::class.java)
             context.stopService(intent)
@@ -161,16 +161,16 @@ class SmashService : Service() {
         }
         val existing = config.targetsWithFlag("getWarnings")
         if (existing.isNotEmpty()) {
-            SmashLogger.info("ensureWarningsTarget: getWarnings already set on ${existing.joinToString()}, no change")
+            SmashLogger.verbose("ensureWarningsTarget: getWarnings already set on ${existing.joinToString()}, no change")
             return
         }
         val first = config.targets.first()
         val (newConfig, wasAdded) = config.addFlag(first, "getWarnings")
         if (wasAdded) {
             val saved = SmashApplication.getConfigManager().save(newConfig)
-            SmashLogger.info("ensureWarningsTarget: auto-assigned getWarnings to $first (saved=$saved)")
+            SmashLogger.warning("ensureWarningsTarget: auto-assigned getWarnings to $first (saved=$saved)")
         } else {
-            SmashLogger.info("ensureWarningsTarget: addFlag returned wasAdded=false for $first (unexpected)")
+            SmashLogger.warning("ensureWarningsTarget: addFlag returned wasAdded=false for $first (unexpected)")
         }
     }
 
@@ -197,6 +197,7 @@ class SmashService : Service() {
      * Signal restored: SMS to phone targets
      */
     private fun notifyTargetsOfSignalState(hasSignal: Boolean, reason: String?) {
+        Thread {
         val config = SmashApplication.getConfigManager().load()
         val warningTargets = config.targetsWithFlag("getWarnings")
 
@@ -230,6 +231,7 @@ class SmashService : Service() {
                 )
             }
         }
+        }.start()
     }
 
     /**
@@ -237,9 +239,9 @@ class SmashService : Service() {
      * Storage low: email only (SMS still works, but want to alert)
      */
     private fun notifyTargetsOfStorageState(isLow: Boolean) {
-        val config = SmashApplication.getConfigManager().load()
-
-        if (isLow) {
+        if (!isLow) return
+        Thread {
+            val config = SmashApplication.getConfigManager().load()
             val message = "💾 Smash phone storage is low!\n\nPlease clear some space to ensure MMS downloads and logs work properly."
             for (target in config.targetsWithFlag("getWarnings")) {
                 if (target.contains('@')) {
@@ -251,8 +253,7 @@ class SmashService : Service() {
                     )
                 }
             }
-        }
-        // No notification when storage is restored - not important
+        }.start()
     }
 
     private fun notifyTargetsOfEndpointState(isUp: Boolean) {
@@ -295,20 +296,22 @@ class SmashService : Service() {
         
         if (wasDefaultSmsApp && !isDefaultNow) {
             SmashLogger.error("Lost default SMS app status!")
-            val config = SmashApplication.getConfigManager().load()
-            val message = "⚠️ Smash lost default SMS app status!\n\nSMS forwarding will NOT work until this is fixed.\n\nOpen the app and grant default SMS permissions."
-            for (target in config.targets) {
-                if (target.contains('@')) {
-                    messageForwarder.forwardToEmail(
-                        origin = "smash-alert",
-                        body = message,
-                        destination = target,
-                        timestamp = System.currentTimeMillis()
-                    )
+            Thread {
+                val config = SmashApplication.getConfigManager().load()
+                val message = "⚠️ Smash lost default SMS app status!\n\nSMS forwarding will NOT work until this is fixed.\n\nOpen the app and grant default SMS permissions."
+                for (target in config.targets) {
+                    if (target.contains('@')) {
+                        messageForwarder.forwardToEmail(
+                            origin = "smash-alert",
+                            body = message,
+                            destination = target,
+                            timestamp = System.currentTimeMillis()
+                        )
+                    }
                 }
-            }
+            }.start()
         } else if (!wasDefaultSmsApp && isDefaultNow) {
-            SmashLogger.info("Default SMS app status restored")
+            SmashLogger.warning("Default SMS app status restored")
         }
         
         wasDefaultSmsApp = isDefaultNow
@@ -316,7 +319,7 @@ class SmashService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val trigger = intent?.getStringExtra(EXTRA_TRIGGER) ?: "unknown"
-        SmashLogger.info("SmashService started (trigger: $trigger)")
+        SmashLogger.warning("SmashService started (trigger: $trigger)")
         ensureWarningsTarget()
         
         // Start foreground immediately with "checking" status to avoid ANR
@@ -435,7 +438,7 @@ class SmashService : Service() {
                     SmashLogger.info("repeated to ${result.totalTargets} targets (${result.successCount} ok, ${result.failureCount} failed)")
                 }
             } else {
-                SmashLogger.info("no targets configured, message not forwarded")
+                SmashLogger.warning("no targets configured, message not forwarded")
             }
         }
     }

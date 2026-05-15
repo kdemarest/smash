@@ -68,10 +68,10 @@ class StorageMonitor(
         if (isLow != wasLow) {
             wasLow = isLow
             if (isLow) {
-                SmashLogger.info("Storage low: ${availableMB}MB available")
+                SmashLogger.warning("Storage low: ${availableMB}MB available")
                 AlertManager.addAlert(AlertManager.ALERT_STORAGE, ALERT_MESSAGE)
             } else {
-                SmashLogger.info("Storage OK: ${availableMB}MB available")
+                SmashLogger.warning("Storage OK: ${availableMB}MB available")
                 AlertManager.removeAlert(AlertManager.ALERT_STORAGE)
             }
             onStorageStateChanged?.invoke(isLow)

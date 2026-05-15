@@ -1,6 +1,8 @@
 package com.smash.app
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import java.net.InetSocketAddress
@@ -52,8 +54,23 @@ class EndpointMonitor(
         SmashLogger.verbose("EndpointMonitor stopped")
     }
 
+    private fun isNetworkAvailable(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
     private fun runCheck() {
         Thread {
+            if (!isNetworkAvailable()) {
+                handler.post {
+                    AlertManager.addInfoState(AlertManager.INFO_ENDPOINT_UNKNOWN, "Unknown (no network)")
+                    SmashLogger.verbose("EndpointMonitor: skipping check, no network")
+                }
+                return@Thread
+            }
+
             val config = SmashApplication.getConfigManager().load()
             val results = mutableListOf<Pair<String, Boolean>>()
 
@@ -64,7 +81,10 @@ class EndpointMonitor(
                 results.add("log" to tcpCheck(it))
             }
 
-            handler.post { handleResults(results) }
+            handler.post {
+                AlertManager.removeInfoState(AlertManager.INFO_ENDPOINT_UNKNOWN)
+                handleResults(results)
+            }
         }.start()
     }
 
@@ -72,7 +92,7 @@ class EndpointMonitor(
         if (results.isEmpty()) return
 
         val statusStr = results.joinToString(", ") { "${it.first}: ${if (it.second) "up" else "DOWN"}" }
-        SmashLogger.info("EndpointMonitor: $statusStr")
+        SmashLogger.warning("EndpointMonitor: $statusStr")
 
         val allUp = results.all { it.second }
         if (allUp == allEndpointsUp) return

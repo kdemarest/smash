@@ -25,15 +25,13 @@ class SmashApplication : Application() {
         val config = configManager.load()
         
         // Set verbose mode from config
-        SmashLogger.isVerbose = config.verbose
-
         // Visual separator for easy restart identification in logs
         // (must be after configManager init since LogUploader needs it)
-        SmashLogger.info("──────────────────────────────────────────────────")
+        SmashLogger.warning("──────────────────────────────────────────────────")
 
         // Log startup (compact)
         val verboseFlag = if (config.verbose) " [verbose]" else ""
-        SmashLogger.info("smash starting$verboseFlag, ${config.targets.size} targets")
+        SmashLogger.warning("smash starting$verboseFlag, ${config.targets.size} targets")
     }
 
     companion object {
